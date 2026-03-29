@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Office — Escritório Virtual de Agentes IA</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Canvas principal do Three.js -->
+  <canvas id="canvas"></canvas>
+
+  <!-- HUD superior -->
+  <div id="hud-top">
+    <div id="hud-title">🏢 AI Office</div>
+    <div id="hud-stats">
+      <span id="stat-tasks">Tarefas hoje: <strong id="total-tasks">0</strong></span>
+      <span id="stat-agents">Agentes: <strong id="total-agents">4</strong></span>
+    </div>
+    <button id="btn-add-agent">+ Adicionar Agente</button>
+  </div>
+
+  <!-- Crosshair (mira central) -->
+  <div id="crosshair">+</div>
+
+  <!-- Painel lateral direito -->
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <h2>Painel de Controle</h2>
+      <button id="sidebar-toggle" title="Minimizar painel">◀</button>
+    </div>
+
+    <!-- Lista de agentes -->
+    <div id="agents-section">
+      <h3>Agentes Ativos</h3>
+      <div id="agents-list"></div>
+    </div>
+
+    <!-- Log de atividades -->
+    <div id="log-section">
+      <h3>Log de Atividades <span id="log-count">(0)</span></h3>
+      <div id="activity-log"></div>
+    </div>
+  </div>
+
+  <!-- Painel de detalhes do agente (ao clicar) -->
+  <div id="agent-details" class="hidden">
+    <div id="agent-details-content">
+      <button id="agent-details-close">✕</button>
+      <div id="agent-details-avatar-color"></div>
+      <h2 id="agent-details-name">Nome</h2>
+      <p id="agent-details-role">Função</p>
+      <div id="agent-details-stats">
+        <div class="detail-stat">
+          <span class="detail-label">Tarefas concluídas</span>
+          <span id="detail-tasks-count" class="detail-value">0</span>
+        </div>
+        <div class="detail-stat">
+          <span class="detail-label">Status atual</span>
+          <span id="detail-status" class="detail-value">Idle</span>
+        </div>
+        <div class="detail-stat">
+          <span class="detail-label">Última ação</span>
+          <span id="detail-last-action" class="detail-value">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Adicionar Agente -->
+  <div id="modal-overlay" class="hidden">
+    <div id="modal">
+      <div id="modal-header">
+        <h2>✨ Novo Agente</h2>
+        <button id="modal-close">✕</button>
+      </div>
+
+      <form id="form-add-agent">
+        <div class="form-group">
+          <label for="input-agent-name">Nome do Agente</label>
+          <input type="text" id="input-agent-name" placeholder="Ex: Alex" maxlength="20" required />
+        </div>
+
+        <div class="form-group">
+          <label for="input-agent-role">Função</label>
+          <select id="input-agent-role">
+            <option value="prospeccao">🔍 Prospecção</option>
+            <option value="crm">🎯 Qualificação CRM</option>
+            <option value="financeiro">💰 Financeiro</option>
+            <option value="marketing">📱 Marketing</option>
+            <option value="custom">⚙️ Custom</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="input-agent-color">Cor do Avatar</label>
+          <div class="color-picker-row">
+            <input type="color" id="input-agent-color" value="#00aaff" />
+            <div class="color-presets">
+              <div class="color-preset" style="background:#4488ff" data-color="#4488ff"></div>
+              <div class="color-preset" style="background:#44cc88" data-color="#44cc88"></div>
+              <div class="color-preset" style="background:#ffcc00" data-color="#ffcc00"></div>
+              <div class="color-preset" style="background:#ff6699" data-color="#ff6699"></div>
+              <div class="color-preset" style="background:#aa44ff" data-color="#aa44ff"></div>
+              <div class="color-preset" style="background:#ff7744" data-color="#ff7744"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group" id="form-group-custom" style="display:none">
+          <label for="input-agent-messages">Mensagens (uma por linha)</label>
+          <textarea id="input-agent-messages" rows="4"
+            placeholder="Executando tarefa personalizada...&#10;Analisando dados..."></textarea>
+        </div>
+
+        <button type="submit" id="btn-create-agent">🚀 Criar Agente</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Instruções de controle -->
+  <div id="controls-hint">
+    <span>WASD mover</span>
+    <span>Mouse olhar</span>
+    <span>Clique focar</span>
+    <span>ESC soltar</span>
+  </div>
+
+  <!-- Aviso mobile: toque para ativar -->
+  <div id="touch-overlay" class="hidden">
+    <p>Toque para entrar no escritório</p>
+  </div>
+
+  <!-- Joystick virtual (mobile) -->
+  <div id="joystick-container" class="hidden">
+    <div id="joystick-base">
+      <div id="joystick-thumb"></div>
+    </div>
+  </div>
+
+  <!-- Three.js via CDN -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <!-- Módulos do projeto -->
+  <script type="module" src="js/main.js"></script>
+
+</body>
+</html>

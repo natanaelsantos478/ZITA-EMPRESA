@@ -1,0 +1,728 @@
+/* ============================================================
+   AI Office — Estilos globais
+   Tema escuro, visual de painel corporativo futurista
+   ============================================================ */
+
+/* Reset e base */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg-dark:        #0d0f14;
+  --bg-panel:       #13161e;
+  --bg-panel2:      #1a1e28;
+  --bg-hover:       #22263a;
+  --border:         #2a2f42;
+  --accent:         #4a9eff;
+  --accent-glow:    rgba(74,158,255,0.25);
+  --success:        #44cc88;
+  --warning:        #ffcc00;
+  --danger:         #ff4466;
+  --text-primary:   #e8eaf0;
+  --text-secondary: #8890a8;
+  --text-muted:     #50566e;
+  --radius:         8px;
+  --radius-lg:      14px;
+  --transition:     0.18s ease;
+  --font:           'Segoe UI', system-ui, sans-serif;
+  --sidebar-width:  320px;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-dark);
+  font-family: var(--font);
+  color: var(--text-primary);
+}
+
+/* ============================================================
+   Canvas Three.js
+   ============================================================ */
+#canvas {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+/* ============================================================
+   HUD superior
+   ============================================================ */
+#hud-top {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: var(--sidebar-width);
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 20px;
+  background: linear-gradient(to bottom, rgba(13,15,20,0.92), transparent);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  pointer-events: none;
+}
+
+#hud-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  text-shadow: 0 0 12px var(--accent-glow);
+  pointer-events: auto;
+}
+
+#hud-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  pointer-events: auto;
+}
+
+#hud-stats strong {
+  color: var(--text-primary);
+}
+
+#btn-add-agent {
+  margin-left: auto;
+  padding: 7px 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background var(--transition), box-shadow var(--transition);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+#btn-add-agent:hover {
+  background: #6ab4ff;
+  box-shadow: 0 0 18px var(--accent-glow);
+}
+
+/* ============================================================
+   Crosshair
+   ============================================================ */
+#crosshair {
+  position: fixed;
+  top: 50%;
+  left: calc(50% - var(--sidebar-width) / 2);
+  transform: translate(-50%, -50%);
+  color: rgba(255,255,255,0.6);
+  font-size: 1.4rem;
+  font-weight: 100;
+  pointer-events: none;
+  z-index: 100;
+  text-shadow: 0 0 6px rgba(255,255,255,0.4);
+  transition: opacity var(--transition);
+}
+
+#crosshair.hidden { opacity: 0; }
+
+/* ============================================================
+   Painel lateral direito
+   ============================================================ */
+#sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: var(--sidebar-width);
+  height: 100%;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 200;
+  transition: transform var(--transition);
+  overflow: hidden;
+}
+
+#sidebar.collapsed {
+  transform: translateX(calc(var(--sidebar-width) - 36px));
+}
+
+#sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+#sidebar-header h2 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.03em;
+}
+
+#sidebar-toggle {
+  width: 28px;
+  height: 28px;
+  background: var(--bg-panel2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition), background var(--transition);
+}
+
+#sidebar-toggle:hover { color: var(--accent); background: var(--bg-hover); }
+
+#sidebar.collapsed #sidebar-toggle { transform: rotate(180deg); }
+
+/* Seções do painel */
+#agents-section,
+#log-section {
+  padding: 12px 14px;
+  flex-shrink: 0;
+}
+
+#agents-section {
+  border-bottom: 1px solid var(--border);
+}
+
+#agents-section h3,
+#log-section h3 {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+#log-count {
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+/* Cartão de agente no painel */
+.agent-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--bg-panel2);
+  border: 1px solid var(--border);
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.agent-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.agent-card.active-card {
+  border-color: var(--success);
+  box-shadow: 0 0 8px rgba(68,204,136,0.2);
+}
+
+.agent-card-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.agent-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-card-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-card-role {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.agent-card-status {
+  font-size: 0.68rem;
+  padding: 2px 7px;
+  border-radius: 20px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.status-idle    { background: rgba(80,86,110,0.3); color: var(--text-muted); }
+.status-active  { background: rgba(68,204,136,0.2); color: var(--success); }
+.status-done    { background: rgba(74,158,255,0.2); color: var(--accent); }
+
+.agent-card-tasks {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+/* Log de atividades */
+#log-section {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#activity-log {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 2px;
+}
+
+#activity-log::-webkit-scrollbar { width: 4px; }
+#activity-log::-webkit-scrollbar-track { background: transparent; }
+#activity-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.log-entry {
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  background: var(--bg-panel2);
+  border-left: 3px solid transparent;
+  animation: logSlideIn 0.25s ease;
+  font-size: 0.76rem;
+}
+
+@keyframes logSlideIn {
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.log-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.log-content { flex: 1; min-width: 0; }
+
+.log-agent {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.log-message {
+  color: var(--text-secondary);
+  margin-top: 1px;
+  line-height: 1.3;
+}
+
+.log-time {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ============================================================
+   Painel de detalhes do agente
+   ============================================================ */
+#agent-details {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  width: 260px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  z-index: 300;
+  animation: slideUp 0.25s ease;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+#agent-details-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 24px;
+  height: 24px;
+  background: var(--bg-panel2);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition);
+}
+
+#agent-details-close:hover { color: var(--danger); }
+
+#agent-details-avatar-color {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  margin-bottom: 12px;
+  border: 3px solid rgba(255,255,255,0.1);
+}
+
+#agent-details-name {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+#agent-details-role {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+#agent-details-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+}
+
+.detail-label { color: var(--text-secondary); }
+.detail-value { font-weight: 600; color: var(--text-primary); }
+
+/* ============================================================
+   Modal: Adicionar Agente
+   ============================================================ */
+#modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+#modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  width: 360px;
+  max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  animation: modalSlideIn 0.25s ease;
+}
+
+@keyframes modalSlideIn {
+  from { opacity: 0; transform: translateY(-16px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+#modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+
+#modal-header h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+#modal-close {
+  width: 28px;
+  height: 28px;
+  background: var(--bg-panel2);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition), border-color var(--transition);
+}
+
+#modal-close:hover { color: var(--danger); border-color: var(--danger); }
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+
+.form-group input[type="text"],
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--bg-panel2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color var(--transition);
+  resize: vertical;
+}
+
+.form-group input[type="text"]:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.form-group select option {
+  background: var(--bg-panel2);
+}
+
+.color-picker-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.form-group input[type="color"] {
+  width: 44px;
+  height: 38px;
+  padding: 2px;
+  background: var(--bg-panel2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.color-presets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.color-preset {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color var(--transition), transform var(--transition);
+}
+
+.color-preset:hover {
+  transform: scale(1.2);
+  border-color: rgba(255,255,255,0.4);
+}
+
+#btn-create-agent {
+  width: 100%;
+  padding: 11px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 6px;
+  transition: background var(--transition), box-shadow var(--transition);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+#btn-create-agent:hover {
+  background: #6ab4ff;
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+/* ============================================================
+   Hint de controles
+   ============================================================ */
+#controls-hint {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(calc(-50% - var(--sidebar-width) / 2));
+  display: flex;
+  gap: 12px;
+  z-index: 100;
+  pointer-events: none;
+}
+
+#controls-hint span {
+  padding: 4px 10px;
+  background: rgba(13,15,20,0.75);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  backdrop-filter: blur(4px);
+}
+
+/* ============================================================
+   Touch overlay (mobile)
+   ============================================================ */
+#touch-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(13,15,20,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+  cursor: pointer;
+}
+
+#touch-overlay p {
+  font-size: 1.4rem;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 20px;
+}
+
+/* ============================================================
+   Joystick virtual (mobile)
+   ============================================================ */
+#joystick-container {
+  position: fixed;
+  bottom: 80px;
+  left: 30px;
+  z-index: 400;
+}
+
+#joystick-base {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  border: 2px solid rgba(255,255,255,0.15);
+  position: relative;
+  touch-action: none;
+}
+
+#joystick-thumb {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(74,158,255,0.7);
+  border: 2px solid rgba(74,158,255,0.9);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  transition: box-shadow 0.1s ease;
+}
+
+/* ============================================================
+   Utilitários
+   ============================================================ */
+.hidden {
+  display: none !important;
+}
+
+/* ============================================================
+   Responsividade — mobile
+   ============================================================ */
+@media (max-width: 700px) {
+  :root {
+    --sidebar-width: 0px;
+  }
+
+  #sidebar {
+    width: 100%;
+    height: 220px;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    transform: translateY(0);
+    flex-direction: row;
+    flex-wrap: wrap;
+    overflow-x: auto;
+  }
+
+  #sidebar.collapsed {
+    transform: translateY(calc(100% - 36px));
+  }
+
+  #agents-section {
+    border-bottom: none;
+    border-right: 1px solid var(--border);
+    min-width: 200px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  #hud-top {
+    right: 0;
+  }
+
+  #crosshair {
+    left: 50%;
+  }
+
+  #controls-hint {
+    display: none;
+  }
+
+  #agent-details {
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 230px;
+    width: 80vw;
+  }
+}
