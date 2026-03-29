@@ -1,0 +1,36 @@
+# Configuração de deploy para o Netlify
+# Projeto estático — sem build necessário
+
+[build]
+  # Pasta publicada (onde está o index.html)
+  publish = "ai-office"
+  # Nenhum comando de build necessário (HTML/CSS/JS puro)
+  command = "echo 'Build não necessário — projeto estático'"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Headers de segurança e performance
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Cache longo para assets estáticos
+[[headers]]
+  for = "/js/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Redireciona tudo para index.html (SPA fallback)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
