@@ -1,0 +1,11 @@
+# Configuração Cloudflare Pages — AI Office
+# Projeto estático, sem build necessário
+
+name = "ai-office"
+compatibility_date = "2024-01-01"
+
+[env.production]
+# Sem workers, apenas site estático
+
+# Para deploy via CLI:
+# npx wrangler pages deploy ai-office
