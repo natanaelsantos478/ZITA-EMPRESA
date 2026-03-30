@@ -10,6 +10,7 @@ import { Avatar } from './avatar.js';
 import { AGENT_CONFIGS } from './agents.js';
 import { Controls } from './controls.js';
 import { UI } from './ui.js';
+import { initSupabase, testSupabaseConnection } from './supabase.js';
 
 // ─── Cena, câmera e renderer ───────────────────────────────────────────────
 
@@ -23,10 +24,10 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
 renderer.toneMapping       = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 1.4;
 
 // Fundo da cena: cor escura (escritório interior à noite/ambiente)
-scene.background = new THREE.Color(0x1a1c22);
+scene.background = new THREE.Color(0x23263a);
 scene.fog = new THREE.Fog(0x1a1c22, 30, 80);
 
 // Posição inicial da câmera: no corredor central do escritório
@@ -35,11 +36,11 @@ camera.position.set(0, 1.65, 10);
 // ─── Iluminação ────────────────────────────────────────────────────────────
 
 // Luz ambiente suave
-const ambientLight = new THREE.AmbientLight(0x8899bb, 0.6);
+const ambientLight = new THREE.AmbientLight(0x8899cc, 1.4);
 scene.add(ambientLight);
 
 // Luz direcional principal (simula luz de teto)
-const sunLight = new THREE.DirectionalLight(0xfff5e0, 0.9);
+const sunLight = new THREE.DirectionalLight(0xfff5e0, 1.6);
 sunLight.position.set(5, 12, 8);
 sunLight.castShadow = true;
 sunLight.shadow.mapSize.set(2048, 2048);
@@ -53,7 +54,7 @@ sunLight.shadow.bias = -0.001;
 scene.add(sunLight);
 
 // Luz de preenchimento suave (oposta)
-const fillLight = new THREE.DirectionalLight(0x6688aa, 0.3);
+const fillLight = new THREE.DirectionalLight(0x6688aa, 0.7);
 fillLight.position.set(-8, 5, -5);
 scene.add(fillLight);
 
@@ -64,7 +65,7 @@ const spotPositions = [
   [0,  5,  0],
 ];
 spotPositions.forEach(([x, y, z]) => {
-  const spot = new THREE.SpotLight(0xffeedd, 0.7, 18, Math.PI / 5, 0.4, 1.2);
+  const spot = new THREE.SpotLight(0xffeedd, 1.4, 18, Math.PI / 5, 0.4, 1.2);
   spot.position.set(x, y, z);
   spot.castShadow = false; // spots secundários sem shadow para performance
   scene.add(spot);
@@ -164,6 +165,22 @@ function animate() {
 }
 
 animate();
+
+// ─── Inicializa Supabase e atualiza badge ─────────────────────────────────
+(async () => {
+  const badge = document.getElementById('supabase-badge');
+  const ok = initSupabase();
+  if (ok) {
+    const connected = await testSupabaseConnection();
+    if (connected) {
+      badge.textContent = '🟢 Supabase';
+      badge.classList.add('connected');
+    } else {
+      badge.textContent = '🟡 Sem tabelas';
+      badge.title = 'Crie as tabelas no Supabase SQL Editor (veja js/supabase.js)';
+    }
+  }
+})();
 
 // ─── Exporta contexto global para uso nos outros módulos ──────────────────
 

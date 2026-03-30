@@ -446,6 +446,33 @@ export class Avatar {
   }
 
   /**
+   * Atualiza a cor do avatar em tempo real.
+   * @param {number} newColor Cor hex (ex: 0xff6699)
+   */
+  setColor(newColor) {
+    this.color = newColor;
+    const mat = new THREE.MeshLambertMaterial({ color: newColor });
+    // Atualiza torso, cabelo, badge (índices 0, 13, 14 — torso e derivados)
+    this._meshes.forEach(mesh => {
+      if (mesh.material?.color) {
+        const c = mesh.material.color.getHex();
+        // Substitui materiais que eram coloridos (não preto/branco)
+        if (c !== 0x111318 && c !== 0xfff0e8 && c !== 0x151820 && c !== 0x222233) {
+          mesh.material = new THREE.MeshLambertMaterial({
+            color: this._computeColorVariant(newColor, mesh)
+          });
+        }
+      }
+    });
+  }
+
+  _computeColorVariant(base, mesh) {
+    const c = mesh.material?.color?.getHex?.() || base;
+    if (c === base) return base;
+    return this._darken(base, 0.55);
+  }
+
+  /**
    * Remove o avatar da cena e limpa os elementos HTML.
    */
   dispose() {
