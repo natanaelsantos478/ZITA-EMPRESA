@@ -1,4 +1,6 @@
-# Cloudflare Pages — AI Office
+# Cloudflare Worker — AI Office (serve arquivos estáticos)
 name = "escritorio"
-pages_build_output_dir = "ai-office"
 compatibility_date = "2024-01-01"
+
+[assets]
+directory = "./ai-office"
