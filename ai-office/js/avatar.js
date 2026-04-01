@@ -37,7 +37,8 @@ export class Avatar {
     this.emoji      = config.emoji;
     this.messages   = config.messages;
     this.position   = config.position.clone();
-    this.deskAngle  = config.deskAngle || 0;
+    this.deskAngle    = config.deskAngle || 0;
+    this.defaultConfig = config.defaultConfig || null;
 
     // Estado interno
     this.status         = 'idle';   // 'idle' | 'active' | 'done'
@@ -67,8 +68,24 @@ export class Avatar {
 
     this._build();
     this._buildSpeechBubble();
+    this._applyDefaultConfig();
     this._buildNameTag();
     this._scheduleNextTask();
+  }
+
+  // ─── Config padrão da API ─────────────────────────────────────────────
+
+  /**
+   * Salva defaultConfig no localStorage APENAS se o usuário ainda não
+   * configurou este agente — preserva configurações manuais existentes.
+   */
+  _applyDefaultConfig() {
+    if (!this.defaultConfig) return;
+    const LS_KEY = 'ai-office-agent-' + this.name;
+    const existing = localStorage.getItem(LS_KEY);
+    if (!existing) {
+      localStorage.setItem(LS_KEY, JSON.stringify(this.defaultConfig));
+    }
   }
 
   // ─── Construção do corpo ──────────────────────────────────────────────

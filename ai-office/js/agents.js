@@ -22,6 +22,13 @@ export const AGENT_CONFIGS = [
     role:  'Prospecção',
     emoji: '🔍',
     color: 0x3377ff,   // Azul vibrante
+    // Config padrão de API — salva no localStorage na primeira inicialização
+    // (pode ser sobrescrita pelo usuário via painel ⚙️)
+    defaultConfig: {
+      provider:     'flowise',
+      baseUrl:      'https://celebrated-optimism-production-12cf.up.railway.app/api/v1/prediction/bc00c689-1938-4cdc-bc85-bfb2c7d336d0',
+      systemPrompt: 'Você é Dante, especialista em prospecção de leads B2B. Ajude a identificar e qualificar potenciais clientes.',
+    },
     messages: [
       'Encontrei 3 leads no LinkedIn...',
       'Analisando perfil: João Silva, CEO...',

@@ -243,8 +243,11 @@ export class UI {
     // Atualiza modelos ao mudar provedor
     document.getElementById('cfg-provider').addEventListener('change', (e) => {
       this._updateModelPresets(e.target.value);
-      const isOllama = e.target.value === 'ollama';
-      document.getElementById('cfg-group-base-url').style.display = isOllama ? 'block' : 'none';
+      const needsUrl = e.target.value === 'ollama' || e.target.value === 'flowise';
+      document.getElementById('cfg-group-base-url').style.display = needsUrl ? 'block' : 'none';
+      // Atualiza label do campo URL
+      const label = document.querySelector('#cfg-group-base-url label');
+      if (label) label.textContent = e.target.value === 'flowise' ? 'URL do Endpoint' : 'Base URL (Ollama)';
     });
 
     // Toggle visibilidade das senhas
@@ -333,8 +336,10 @@ export class UI {
     document.getElementById('cfg-webhook-interval').value = cfg.webhookInterval || '0';
 
     this._updateModelPresets(cfg.provider || '');
-    document.getElementById('cfg-group-base-url').style.display =
-      cfg.provider === 'ollama' ? 'block' : 'none';
+    const needsUrl = cfg.provider === 'ollama' || cfg.provider === 'flowise';
+    document.getElementById('cfg-group-base-url').style.display = needsUrl ? 'block' : 'none';
+    const label = document.querySelector('#cfg-group-base-url label');
+    if (label) label.textContent = cfg.provider === 'flowise' ? 'URL do Endpoint' : 'Base URL (Ollama)';
 
     document.getElementById('api-test-result').textContent = '';
     document.getElementById('webhook-test-result').textContent = '';

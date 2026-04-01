@@ -1,11 +1,12 @@
 /**
  * api.js — Camada de acesso às APIs de IA e webhooks N8N
- * Suporta: OpenAI, Anthropic, Google Gemini, Ollama, N8N Webhook
+ * Suporta: OpenAI, Anthropic, Google Gemini, Ollama, Flowise, N8N Webhook
  */
 
 // ─── Modelos padrão por provedor ──────────────────────────────────────────
 
 export const PROVIDER_MODELS = {
+  flowise: [], // Flowise não tem seleção de modelo — usa endpoint direto
   openai: [
     'gpt-4o',
     'gpt-4o-mini',
@@ -45,12 +46,41 @@ export async function callAgentAPI(config, messages, systemPrompt) {
   if (!config.provider) throw new Error('Nenhum provedor configurado para este agente.');
 
   switch (config.provider) {
+    case 'flowise':   return callFlowise(config, messages);
     case 'openai':    return callOpenAI(config, messages, systemPrompt);
     case 'anthropic': return callAnthropic(config, messages, systemPrompt);
     case 'gemini':    return callGemini(config, messages, systemPrompt);
     case 'ollama':    return callOllama(config, messages, systemPrompt);
     default: throw new Error(`Provedor desconhecido: ${config.provider}`);
   }
+}
+
+// ─── Flowise / Custom REST API ────────────────────────────────────────────
+// Formato: POST <baseUrl>  Body: { question }  Response: { text }
+
+async function callFlowise(config, messages) {
+  const endpoint = config.baseUrl;
+  if (!endpoint) throw new Error('URL do endpoint Flowise não configurada.');
+
+  // Usa a última mensagem do usuário como "question"
+  const lastUser = [...messages].reverse().find(m => m.role === 'user');
+  if (!lastUser) throw new Error('Nenhuma mensagem do usuário encontrada.');
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`;
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ question: lastUser.content }),
+  });
+
+  if (!res.ok) throw new Error(`Flowise API retornou ${res.status}`);
+
+  const data = await res.json();
+  // Aceita: data.text, data.message, data.output, data.answer
+  return data.text ?? data.message ?? data.output ?? data.answer
+    ?? (typeof data === 'string' ? data : JSON.stringify(data));
 }
 
 // ─── OpenAI ───────────────────────────────────────────────────────────────

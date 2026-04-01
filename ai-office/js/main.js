@@ -130,7 +130,15 @@ canvas.addEventListener('click', (e) => {
     // Encontra o avatar dono do mesh clicado
     const hitObj = hits[0].object;
     const avatar = avatars.find(av => av.owns(hitObj));
-    if (avatar) ui.showAgentDetails(avatar);
+    if (!avatar) return;
+
+    // Agentes com API configurada abrem o chat diretamente ao clique
+    const cfg = JSON.parse(localStorage.getItem('ai-office-agent-' + avatar.name) || '{}');
+    if (cfg.provider) {
+      ui.openChat(avatar);
+    } else {
+      ui.showAgentDetails(avatar);
+    }
   }
 });
 
