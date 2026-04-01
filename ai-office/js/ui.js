@@ -172,9 +172,13 @@ export class UI {
       <span class="log-time">${time}</span>
     `;
     const log = document.getElementById('activity-log');
-    log.insertBefore(entry, log.firstChild);
+    if (!log) return;
+    log.prepend(entry);
     this._logEntryCount++;
-    while (log.children.length > MAX_LOG_ENTRIES) log.removeChild(log.lastChild);
+    while (log.children.length > MAX_LOG_ENTRIES) {
+      const last = log.lastElementChild;
+      if (last) log.removeChild(last); else break;
+    }
     document.getElementById('log-count').textContent = `(${Math.min(this._logEntryCount, MAX_LOG_ENTRIES)})`;
     this._updateStats();
   }
