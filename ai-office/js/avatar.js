@@ -76,14 +76,19 @@ export class Avatar {
   // ─── Config padrão da API ─────────────────────────────────────────────
 
   /**
-   * Salva defaultConfig no localStorage APENAS se o usuário ainda não
-   * configurou este agente — preserva configurações manuais existentes.
+   * Salva defaultConfig no localStorage se o agente ainda não tiver
+   * provider nem webhook configurado — preserva configurações manuais.
    */
   _applyDefaultConfig() {
     if (!this.defaultConfig) return;
     const LS_KEY = 'ai-office-agent-' + this.name;
-    const existing = localStorage.getItem(LS_KEY);
-    if (!existing) {
+    try {
+      const existing = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+      // Só aplica se não há provider nem webhookUrl configurado pelo usuário
+      if (!existing.provider && !existing.webhookUrl) {
+        localStorage.setItem(LS_KEY, JSON.stringify(this.defaultConfig));
+      }
+    } catch {
       localStorage.setItem(LS_KEY, JSON.stringify(this.defaultConfig));
     }
   }
