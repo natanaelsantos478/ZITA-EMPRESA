@@ -86,13 +86,14 @@ AGENT_CONFIGS.forEach((cfg, i) => {
   if (i >= deskPositions.length) return;
   const pos = deskPositions[i];
   const avatar = new Avatar(scene, {
-    name:     cfg.name,
-    role:     cfg.role,
-    color:    cfg.color,
-    emoji:    cfg.emoji,
-    messages: cfg.messages,
-    position: new THREE.Vector3(pos.x, 0, pos.z),
-    deskAngle: pos.angle,
+    name:          cfg.name,
+    role:          cfg.role,
+    color:         cfg.color,
+    emoji:         cfg.emoji,
+    messages:      cfg.messages,
+    defaultConfig: cfg.defaultConfig || null,
+    position:      new THREE.Vector3(pos.x, 0, pos.z),
+    deskAngle:     pos.angle,
   });
   avatars.push(avatar);
 });
