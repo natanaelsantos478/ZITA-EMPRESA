@@ -1,24 +1,73 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import type { ReactNode } from 'react'
-import type { User } from '@supabase/supabase-js'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  type ReactNode,
+} from 'react'
+import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import type { Profile, UserRole } from '../types'
+import type { Profile } from '../types'
+
+const COMPANY_ID = 'a0000000-0000-0000-0000-000000000001'
+const EMAIL_DOMAIN = '@escritorio.zita.ai'
+const MAX_ATTEMPTS = 5
+const LOCKOUT_MS = 30_000
+const LOCKOUT_KEY = 'zita_login_lockout'
+const ATTEMPTS_KEY = 'zita_login_attempts'
 
 interface AuthContextValue {
   user: User | null
+  session: Session | null
   profile: Profile | null
-  companyId: string | null
-  role: UserRole
+  companyId: string
   loading: boolean
-  isAdmin: boolean
-  signIn: (loginOrEmail: string, senha: string) => Promise<{ error?: string }>
+  signIn: (loginOrEmail: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+function resolveEmail(input: string): string {
+  const trimmed = input.trim()
+  if (trimmed.includes('@')) return trimmed
+  return `${trimmed}${EMAIL_DOMAIN}`
+}
+
+function getLockoutRemaining(): number {
+  const lockedAt = localStorage.getItem(LOCKOUT_KEY)
+  if (!lockedAt) return 0
+  const elapsed = Date.now() - Number(lockedAt)
+  if (elapsed >= LOCKOUT_MS) {
+    localStorage.removeItem(LOCKOUT_KEY)
+    localStorage.removeItem(ATTEMPTS_KEY)
+    return 0
+  }
+  return Math.ceil((LOCKOUT_MS - elapsed) / 1000)
+}
+
+function getAttempts(): number {
+  return Number(localStorage.getItem(ATTEMPTS_KEY) ?? '0')
+}
+
+function incrementAttempts(): number {
+  const next = getAttempts() + 1
+  localStorage.setItem(ATTEMPTS_KEY, String(next))
+  if (next >= MAX_ATTEMPTS) {
+    localStorage.setItem(LOCKOUT_KEY, String(Date.now()))
+  }
+  return next
+}
+
+function resetAttempts() {
+  localStorage.removeItem(ATTEMPTS_KEY)
+  localStorage.removeItem(LOCKOUT_KEY)
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -27,88 +76,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .from('profiles')
       .select('*')
       .eq('id', userId)
+      .eq('company_id', COMPANY_ID)
       .single()
-    if (data) setProfile(data as Profile)
+    if (data) setProfile(data)
   }, [])
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      if (session?.user) fetchProfile(session.user.id)
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session)
+      setUser(data.session?.user ?? null)
+      if (data.session?.user) fetchProfile(data.session.user.id)
       setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
       setUser(session?.user ?? null)
       if (session?.user) {
         fetchProfile(session.user.id)
       } else {
         setProfile(null)
       }
-      setLoading(false)
     })
 
-    return () => subscription.unsubscribe()
+    return () => listener.subscription.unsubscribe()
   }, [fetchProfile])
 
-  const signIn = async (loginOrEmail: string, senha: string): Promise<{ error?: string }> => {
-    const email = loginOrEmail.includes('@')
-      ? loginOrEmail
-      : `${loginOrEmail}@escritorio.zita.ai`
+  const signIn = useCallback(async (loginOrEmail: string, password: string) => {
+    // Check lockout
+    const remaining = getLockoutRemaining()
+    if (remaining > 0) {
+      return { error: `Aguarde ${remaining}s antes de tentar novamente.` }
+    }
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password: senha })
+    const email = resolveEmail(loginOrEmail)
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
 
     if (error) {
-      // Registrar tentativa falha no audit_log (best-effort)
-      try {
-        await supabase.from('audit_log').insert({
-          acao: 'login',
-          detalhes: { email_tentativa: email.split('@')[0] },
-          sucesso: false,
-        })
-      } catch { /* ignorar erros de audit */ }
-      return { error: 'Login ou senha incorretos' }
+      incrementAttempts()
+      const stillLocked = getLockoutRemaining()
+      if (stillLocked > 0) {
+        return { error: `Muitas tentativas. Aguarde ${stillLocked}s.` }
+      }
+      return { error: 'Login ou senha incorretos.' }
     }
 
-    if (data.user) {
-      // Atualizar ultimo_acesso_at
-      try {
-        await supabase
-          .from('profiles')
-          .upsert({ id: data.user.id, ultimo_acesso_at: new Date().toISOString() })
-      } catch { /* ignorar */ }
+    resetAttempts()
+    return { error: null }
+  }, [])
 
-      // Audit log sucesso
-      try {
-        await supabase.from('audit_log').insert({
-          acao: 'login',
-          detalhes: { email: email.split('@')[0] },
-          sucesso: true,
-        })
-      } catch { /* ignorar */ }
-    }
-
-    return {}
-  }
-
-  const signOut = async () => {
-    try {
-      await supabase.from('audit_log').insert({
-        acao: 'logout',
-        detalhes: {},
-        sucesso: true,
-      })
-    } catch { /* ignorar */ }
+  const signOut = useCallback(async () => {
     await supabase.auth.signOut()
     setProfile(null)
-  }
-
-  const companyId = profile?.company_id ?? null
-  const role: UserRole = profile?.role ?? 'viewer'
-  const isAdmin = role === 'owner' || role === 'admin'
+  }, [])
 
   return (
-    <AuthContext.Provider value={{ user, profile, companyId, role, loading, isAdmin, signIn, signOut }}>
+    <AuthContext.Provider
+      value={{ user, session, profile, companyId: COMPANY_ID, loading, signIn, signOut }}
+    >
       {children}
     </AuthContext.Provider>
   )
@@ -116,6 +141,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error('useAuth deve ser usado dentro de AuthProvider')
+  if (!ctx) throw new Error('useAuth must be used inside AuthProvider')
   return ctx
 }
