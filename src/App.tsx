@@ -1,70 +1,40 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/Layout/ProtectedRoute'
-import AppLayout from './components/Layout/AppLayout'
+import Sidebar from './components/Layout/Sidebar'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
-import Organograma from './pages/Organograma'
-import Configuracoes from './pages/Configuracoes'
 import NotFound from './pages/NotFound'
+import OrganogramaView from './modules/IAs/Organograma/OrganogramaView'
+import ConfigModule from './modules/Configuracoes/ConfigModule'
+
+function AppLayout() {
+  return (
+    <div className="flex min-h-screen bg-dark-900">
+      <Sidebar />
+      <div className="flex-1 flex flex-col min-h-screen overflow-hidden">
+        <Routes>
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="organograma" element={<OrganogramaView />} />
+          <Route path="ia/:id" element={<OrganogramaView />} />
+          <Route path="configuracoes" element={<ConfigModule />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </div>
+    </div>
+  )
+}
 
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Public */}
           <Route path="/login" element={<Login />} />
-
-          {/* Root redirect */}
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-
-          {/* Protected */}
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <AppLayout>
-                  <Dashboard />
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
-            path="/organograma"
-            element={
-              <ProtectedRoute>
-                <AppLayout>
-                  <Organograma />
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
-            path="/configuracoes"
-            element={
-              <ProtectedRoute requireAdmin>
-                <AppLayout>
-                  <Configuracoes />
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
-            path="/configuracoes/ias"
-            element={
-              <ProtectedRoute requireAdmin>
-                <AppLayout>
-                  <Configuracoes />
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
-
-          {/* 404 */}
+          <Route element={<ProtectedRoute />}>
+            <Route path="/*" element={<AppLayout />} />
+          </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
