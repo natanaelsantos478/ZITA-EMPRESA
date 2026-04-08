@@ -1,0 +1,22 @@
+name            = "zeus-webhook"
+main            = "src/index.ts"
+compatibility_date = "2024-04-05"
+compatibility_flags = ["nodejs_compat"]
+
+# ─── Rotas ────────────────────────────────────────────────────────────────────
+# Descomente e ajuste após criar o worker para vincular a um domínio próprio:
+# routes = [
+#   { pattern = "api.zita.ai/zeus/*", zone_name = "zita.ai" }
+# ]
+
+# ─── Variáveis de ambiente (valores reais via wrangler secret put) ─────────────
+# NÃO coloque valores reais aqui — use: wrangler secret put <NOME>
+[vars]
+SUPABASE_URL       = "https://tgeomsnxfcqwrxijjvek.supabase.co"
+# SUPABASE_ANON_KEY  → wrangler secret put SUPABASE_ANON_KEY
+# FLOWISE_URL        → wrangler secret put FLOWISE_URL
+# FLOWISE_CHATFLOW_ID → wrangler secret put FLOWISE_CHATFLOW_ID
+
+# ─── Observabilidade ──────────────────────────────────────────────────────────
+[observability]
+enabled = true
