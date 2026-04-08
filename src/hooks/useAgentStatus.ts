@@ -9,7 +9,7 @@ export function useAgentStatus() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!companyId) return
+    if (!companyId) { setLoading(false); return }
 
     supabase
       .from('ia_agents')
