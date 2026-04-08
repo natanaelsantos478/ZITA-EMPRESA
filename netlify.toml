@@ -1,11 +1,8 @@
-# Configuração de deploy para o Netlify
-# Projeto estático — sem build necessário
+# Configuração de deploy — ZITA Escritório de IA (React App)
 
 [build]
-  # Pasta publicada (onde está o index.html)
-  publish = "ai-office"
-  # Nenhum comando de build necessário (HTML/CSS/JS puro)
-  command = "echo 'Build não necessário — projeto estático'"
+  publish = "dist"
+  command = "npm run build"
 
 [build.environment]
   NODE_VERSION = "20"
