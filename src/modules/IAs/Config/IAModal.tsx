@@ -2,10 +2,25 @@ import { useState } from 'react'
 import { X, Loader2, Eye, EyeOff } from 'lucide-react'
 import { supabase } from '../../../lib/supabase'
 import { useAuth } from '../../../contexts/AuthContext'
-import type { IaAgent, AgentTipo } from '../../../types'
+import type { IaAgent, AgentTipo, ModoArquivo } from '../../../types'
 
 const INTEGRACOES = ['', 'flowise', 'runway', 'n8n', 'make', 'openai', 'anthropic', 'custom', 'webhook']
 const TONS = ['profissional', 'casual', 'técnico', 'amigável']
+const MODOS_ARQUIVO: { value: ModoArquivo; label: string }[] = [
+  { value: 'none',     label: '— Nenhum —' },
+  { value: 'texto',    label: 'Texto (.txt, .csv)' },
+  { value: 'pdf',      label: 'PDF' },
+  { value: 'imagem',   label: 'Imagem (.jpg, .png)' },
+  { value: 'qualquer', label: 'Qualquer arquivo' },
+]
+const CAPACIDADES_OPCOES = [
+  { key: 'enviar_mensagem',   label: 'Enviar mensagem' },
+  { key: 'criar_tarefa',      label: 'Criar tarefa' },
+  { key: 'delegar_tarefa',    label: 'Delegar tarefa' },
+  { key: 'acessar_historico', label: 'Acessar histórico' },
+  { key: 'executar_webhook',  label: 'Executar webhook' },
+  { key: 'receber_arquivo',   label: 'Receber arquivo' },
+]
 
 interface Props {
   agent?: IaAgent | null
@@ -32,6 +47,10 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
   const [prompt, setPrompt] = useState(agent?.personalidade?.prompt_sistema ?? '')
   const [temperatura, setTemperatura] = useState(agent?.personalidade?.temperatura ?? 0.7)
   const [maxTokens, setMaxTokens] = useState(agent?.personalidade?.max_tokens ?? 2048)
+  const [modoArquivo, setModoArquivo] = useState<ModoArquivo>(agent?.modo_arquivo ?? 'none')
+  const [caps, setCaps] = useState<Record<string, boolean>>(
+    Object.fromEntries(CAPACIDADES_OPCOES.map((c) => [c.key, !!(agent?.capacidades?.[c.key])]))
+  )
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
 
@@ -64,7 +83,8 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
       integracao_config,
       organograma_parent_id: parentId || null,
       personalidade: { tom, idioma: 'pt-BR', prompt_sistema: prompt, temperatura, max_tokens: maxTokens },
-      capacidades: agent?.capacidades ?? {},
+      capacidades: caps,
+      modo_arquivo: modoArquivo,
     }
 
     if (isEdit && agent) {
@@ -218,6 +238,31 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
                   onChange={(e) => setMaxTokens(parseInt(e.target.value, 10))}
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-brand-500" />
               </div>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-800 pt-4">
+            <p className="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wide">Recebimento de Arquivos</p>
+            <select value={modoArquivo} onChange={(e) => setModoArquivo(e.target.value as ModoArquivo)}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-brand-500">
+              {MODOS_ARQUIVO.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </div>
+
+          <div className="border-t border-gray-800 pt-4">
+            <p className="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wide">Funcionalidades</p>
+            <div className="grid grid-cols-2 gap-2">
+              {CAPACIDADES_OPCOES.map((c) => (
+                <label key={c.key} className="flex items-center gap-2 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={caps[c.key] ?? false}
+                    onChange={(e) => setCaps((prev) => ({ ...prev, [c.key]: e.target.checked }))}
+                    className="w-4 h-4 rounded text-brand-500 border-gray-600 bg-gray-800 focus:ring-brand-500"
+                  />
+                  <span className="text-xs text-gray-400 group-hover:text-gray-200">{c.label}</span>
+                </label>
+              ))}
             </div>
           </div>
         </div>

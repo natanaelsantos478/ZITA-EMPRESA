@@ -39,6 +39,13 @@ export function useAgentStatus() {
           setAgents((prev) => [...prev, payload.new as IaAgent])
         }
       )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'ia_agents', filter: `company_id=eq.${companyId}` },
+        (payload) => {
+          setAgents((prev) => prev.filter((a) => a.id !== (payload.old as IaAgent).id))
+        }
+      )
       .subscribe()
 
     return () => {
@@ -51,3 +58,4 @@ export function useAgentStatus() {
 
   return { agents, statusMap, loading }
 }
+

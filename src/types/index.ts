@@ -5,6 +5,7 @@ export type AgentStatus = 'online' | 'ocupada' | 'aguardando' | 'offline' | 'err
 export type TarefaStatus = 'pendente' | 'em_execucao' | 'concluida' | 'erro' | 'cancelada' | 'aguardando_aprovacao'
 export type TarefaPrioridade = 'baixa' | 'normal' | 'alta' | 'urgente'
 export type MensagemRemetenteTipo = 'humano' | 'ia' | 'sistema' | 'zeus'
+export type ModoArquivo = 'none' | 'texto' | 'pdf' | 'imagem' | 'qualquer'
 
 export interface Company {
   id: string
@@ -47,7 +48,7 @@ export interface IaAgent {
   organograma_x: number
   organograma_y: number
   organograma_parent_id?: string
-  capacidades: Record<string, unknown>
+  capacidades: Record<string, boolean>
   personalidade: {
     tom: string
     idioma: string
@@ -55,6 +56,7 @@ export interface IaAgent {
     temperatura: number
     max_tokens: number
   }
+  modo_arquivo: ModoArquivo
   total_conversas: number
   total_tarefas_concluidas: number
   total_tarefas_erro: number
@@ -122,4 +124,32 @@ export interface IaTarefa {
   conversa_id?: string
   created_at: string
   updated_at: string
+}
+
+// ---- Tabela: audit_log ----
+export interface AuditLog {
+  id: string
+  company_id?: string
+  agent_id?: string
+  user_id?: string
+  acao: string
+  detalhes?: Record<string, unknown>
+  sucesso: boolean
+  created_at: string
+}
+
+// ---- Database shape para Supabase client ----
+export interface Database {
+  public: {
+    Tables: {
+      companies: { Row: Company; Insert: Partial<Company>; Update: Partial<Company> }
+      profiles: { Row: Profile; Insert: Partial<Profile>; Update: Partial<Profile> }
+      ia_agents: { Row: IaAgent; Insert: Partial<IaAgent>; Update: Partial<IaAgent> }
+      ia_tarefas: { Row: IaTarefa; Insert: Partial<IaTarefa>; Update: Partial<IaTarefa> }
+      audit_log: { Row: AuditLog; Insert: Partial<AuditLog>; Update: Partial<AuditLog> }
+    }
+    Views: Record<string, never>
+    Functions: Record<string, never>
+    Enums: Record<string, never>
+  }
 }
