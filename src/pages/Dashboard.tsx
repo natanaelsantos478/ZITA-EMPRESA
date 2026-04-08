@@ -1,272 +1,217 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Link } from 'react-router-dom'
-import {
-  Bot, CheckCircle2, MessageSquare, Zap, Network,
-  Plus, List, ChevronRight, Activity, Clock
-} from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import Header from '../components/Layout/Header'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { useAgentStatus } from '../hooks/useAgentStatus'
-import { useRealtime } from '../hooks/useRealtime'
-import type { IaAgent, IaMensagem, IaTarefa } from '../types'
-import ChatIA from '../modules/IAs/Chat/ChatIA'
+import type { IAAgent, Task, ActivityLog } from '../types'
 
-const STATUS_COLOR: Record<string, string> = {
-  online: 'bg-green-500',
-  ocupada: 'bg-yellow-500',
-  aguardando: 'bg-blue-500',
-  offline: 'bg-gray-500',
-  erro: 'bg-red-500',
-  pausada: 'bg-orange-500',
+interface Stats {
+  totalAgents: number
+  onlineAgents: number
+  tasksToday: number
+  tasksDone: number
 }
 
-function greeting(nome: string) {
-  const h = new Date().getHours()
-  if (h < 12) return `Bom dia, ${nome.split(' ')[0]}`
-  if (h < 18) return `Boa tarde, ${nome.split(' ')[0]}`
-  return `Boa noite, ${nome.split(' ')[0]}`
+function StatCard({ icon, label, value, color }: { icon: string; label: string; value: number | string; color?: string }) {
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-3">
+        <span className="text-2xl">{icon}</span>
+        <div>
+          <p className={`text-2xl font-bold ${color ?? 'text-white'}`}>{value}</p>
+          <p className="text-sm text-gray-400">{label}</p>
+        </div>
+      </div>
+    </div>
+  )
 }
 
-function timeAgo(dateStr: string) {
-  const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000)
-  if (diff < 60) return 'agora'
-  if (diff < 3600) return `há ${Math.floor(diff / 60)}min`
-  if (diff < 86400) return `há ${Math.floor(diff / 3600)}h`
-  return `há ${Math.floor(diff / 86400)}d`
+function StatusDot({ status }: { status: IAAgent['status'] }) {
+  const cls = {
+    online: 'status-dot-online',
+    busy: 'status-dot-busy',
+    offline: 'status-dot-offline',
+    error: 'status-dot-error',
+  }[status] ?? 'status-dot-offline'
+  return <span className={`status-dot ${cls}`} />
 }
 
 export default function Dashboard() {
-  const { profile, companyId, isAdmin } = useAuth()
-  const { agents } = useAgentStatus()
-  const [tarefasCount, setTarefasCount] = useState(0)
-  const [mensagensHoje, setMensagensHoje] = useState(0)
-  const [feed, setFeed] = useState<IaMensagem[]>([])
-  const [chatAgent, setChatAgent] = useState<IaAgent | null>(null)
+  const { companyId } = useAuth()
+  const navigate = useNavigate()
+  const [stats, setStats] = useState<Stats>({ totalAgents: 0, onlineAgents: 0, tasksToday: 0, tasksDone: 0 })
+  const [agents, setAgents] = useState<IAAgent[]>([])
+  const [recentTasks, setRecentTasks] = useState<Task[]>([])
+  const [activityLog, setActivityLog] = useState<ActivityLog[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const zeus = agents.find((a) => a.tipo === 'zeus')
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      const today = new Date().toISOString().slice(0, 10)
 
-  const loadStats = useCallback(async () => {
-    if (!companyId) return
-    const hoje = new Date()
-    hoje.setHours(0, 0, 0, 0)
+      const [agentsRes, tasksRes, logRes] = await Promise.all([
+        supabase.from('ia_agents').select('*').eq('company_id', companyId).order('is_zeus', { ascending: false }),
+        supabase.from('tasks').select('*').eq('company_id', companyId).gte('created_at', today).order('created_at', { ascending: false }).limit(10),
+        supabase.from('activity_log').select('*').eq('company_id', companyId).order('created_at', { ascending: false }).limit(20),
+      ])
 
-    const [{ count: tc }, { count: mc }, { data: feedData }] = await Promise.all([
-      supabase
-        .from('ia_tarefas')
-        .select('*', { count: 'exact', head: true })
-        .eq('company_id', companyId)
-        .eq('status', 'em_execucao'),
-      supabase
-        .from('ia_mensagens')
-        .select('*', { count: 'exact', head: true })
-        .eq('company_id', companyId)
-        .gte('created_at', hoje.toISOString()),
-      supabase
-        .from('ia_mensagens')
-        .select('*')
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false })
-        .limit(20),
-    ])
+      const agentList = agentsRes.data ?? []
+      const taskList = tasksRes.data ?? []
+      const logList = logRes.data ?? []
 
-    setTarefasCount(tc ?? 0)
-    setMensagensHoje(mc ?? 0)
-    if (feedData) setFeed(feedData as IaMensagem[])
+      setAgents(agentList)
+      setRecentTasks(taskList)
+      setActivityLog(logList)
+      setStats({
+        totalAgents: agentList.length,
+        onlineAgents: agentList.filter((a) => a.status === 'online' || a.status === 'busy').length,
+        tasksToday: taskList.length,
+        tasksDone: taskList.filter((t) => t.status === 'done').length,
+      })
+      setLoading(false)
+    }
+
+    load()
   }, [companyId])
 
-  useEffect(() => { loadStats() }, [loadStats])
+  // Realtime agent status
+  useEffect(() => {
+    const sub = supabase
+      .channel('dashboard-agents')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ia_agents', filter: `company_id=eq.${companyId}` }, (payload) => {
+        if (payload.eventType === 'UPDATE') {
+          setAgents((prev) => prev.map((a) => (a.id === (payload.new as IAAgent).id ? (payload.new as IAAgent) : a)))
+        }
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(sub) }
+  }, [companyId])
 
-  // Realtime feed
-  useRealtime<IaMensagem & Record<string, unknown>>(
-    'ia_mensagens',
-    companyId ? `company_id=eq.${companyId}` : undefined,
-    (nova) => {
-      setFeed((prev) => [nova, ...prev].slice(0, 20))
-      setMensagensHoje((n) => n + 1)
-    },
-    'INSERT'
-  )
-
-  useRealtime<IaTarefa & Record<string, unknown>>(
-    'ia_tarefas',
-    companyId ? `company_id=eq.${companyId}` : undefined,
-    (t) => {
-      if (t.status === 'em_execucao') setTarefasCount((n) => n + 1)
-      if (t.status === 'concluida' || t.status === 'erro') setTarefasCount((n) => Math.max(0, n - 1))
-    },
-    'UPDATE'
-  )
-
-  const onlineCount = agents.filter((a) => a.status === 'online').length
+  const taskStatusColor: Record<Task['status'], string> = {
+    pending: 'text-yellow-400',
+    running: 'text-blue-400',
+    done: 'text-emerald-400',
+    failed: 'text-red-400',
+  }
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">
-          {profile ? greeting(profile.nome) : 'Olá'}
-        </h1>
-        <p className="text-sm text-gray-400 mt-0.5">
-          {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-        </p>
-      </div>
-
-      {/* Zeus card */}
-      {zeus && (
-        <div className="bg-gradient-to-r from-brand-950 to-gray-900 border border-brand-700/40 rounded-xl p-5 flex items-center gap-5">
-          <div className="w-16 h-16 rounded-2xl bg-brand-700/40 border-2 border-yellow-500/60 flex items-center justify-center text-3xl flex-shrink-0">
-            {zeus.avatar_url ? (
-              <img src={zeus.avatar_url} alt="Zeus" className="w-full h-full rounded-2xl object-cover" />
-            ) : (
-              <Zap className="w-8 h-8 text-yellow-400" />
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <h2 className="text-lg font-bold text-white">{zeus.nome}</h2>
-              <span className="text-xs bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded-full">IA Mestre</span>
-            </div>
-            <p className="text-sm text-gray-400 truncate">{zeus.funcao ?? 'Coordena todas as IAs subordinadas'}</p>
-            <div className="flex items-center gap-3 mt-2">
-              <span className="flex items-center gap-1.5 text-xs text-gray-400">
-                <span className={`w-2 h-2 rounded-full ${STATUS_COLOR[zeus.status] ?? 'bg-gray-500'}`} />
-                <span className="capitalize">{zeus.status}</span>
-              </span>
-              <span className="text-xs text-gray-500">
-                {zeus.total_conversas} conversas · {zeus.total_tarefas_concluidas} tarefas concluídas
-              </span>
-            </div>
-          </div>
-          <button
-            onClick={() => setChatAgent(zeus)}
-            className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors flex-shrink-0"
-          >
-            <MessageSquare className="w-4 h-4" />
-            Falar com Zeus
+    <div className="flex flex-col flex-1">
+      <Header
+        title="Dashboard"
+        subtitle="Visão geral do seu Escritório de IA"
+        actions={
+          <button onClick={() => navigate('/organograma')} className="btn-primary text-sm">
+            Ver Organograma
           </button>
-        </div>
-      )}
+        }
+      />
 
-      {/* Stats grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'IAs Online', value: onlineCount, icon: Bot, color: 'text-green-400', bg: 'bg-green-400/10' },
-          { label: 'Tarefas em execução', value: tarefasCount, icon: CheckCircle2, color: 'text-blue-400', bg: 'bg-blue-400/10' },
-          { label: 'Mensagens hoje', value: mensagensHoje, icon: MessageSquare, color: 'text-purple-400', bg: 'bg-purple-400/10' },
-          {
-            label: 'Total de IAs',
-            value: agents.length,
-            icon: Activity,
-            color: 'text-brand-400',
-            bg: 'bg-brand-400/10',
-          },
-        ].map(({ label, value, icon: Icon, color, bg }) => (
-          <div key={label} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-            <div className={`w-9 h-9 ${bg} rounded-lg flex items-center justify-center mb-3`}>
-              <Icon className={`w-5 h-5 ${color}`} />
-            </div>
-            <p className="text-2xl font-bold text-white">{value}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Feed de atividade */}
-        <div className="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
-            <h3 className="font-semibold text-white flex items-center gap-2">
-              <Activity className="w-4 h-4 text-brand-400" />
-              Atividade em tempo real
-            </h3>
-            <span className="text-xs text-green-400 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-              ao vivo
-            </span>
-          </div>
-          <div className="divide-y divide-gray-800/50 max-h-80 overflow-y-auto scrollbar-thin">
-            {feed.length === 0 ? (
-              <div className="px-5 py-8 text-center text-sm text-gray-600">
-                Nenhuma atividade ainda
-              </div>
-            ) : (
-              feed.map((m) => (
-                <div
-                  key={m.id}
-                  className="flex items-start gap-3 px-5 py-3 hover:bg-gray-800/30 transition-colors animate-fade-in"
-                >
-                  <div className="w-7 h-7 rounded-full bg-gray-800 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <MessageSquare className="w-3.5 h-3.5 text-gray-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white truncate">{m.remetente_nome}</p>
-                    <p className="text-xs text-gray-500 truncate mt-0.5">{m.conteudo.slice(0, 80)}</p>
-                  </div>
-                  <span className="text-xs text-gray-600 flex-shrink-0 flex items-center gap-1 mt-0.5">
-                    <Clock className="w-3 h-3" />
-                    {timeAgo(m.created_at)}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
+      <div className="flex-1 p-6 space-y-6 overflow-auto">
+        {/* Stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard icon="🤖" label="Agentes" value={stats.totalAgents} />
+          <StatCard icon="🟢" label="Ativos agora" value={stats.onlineAgents} color="text-emerald-400" />
+          <StatCard icon="📋" label="Tarefas hoje" value={stats.tasksToday} color="text-accent" />
+          <StatCard icon="✅" label="Concluídas" value={stats.tasksDone} color="text-emerald-400" />
         </div>
 
-        {/* Atalhos */}
-        <div className="space-y-3">
-          <h3 className="font-semibold text-white px-1">Atalhos rápidos</h3>
-          {[
-            { to: '/organograma', label: 'Ver organograma', icon: Network, desc: 'Mapa de todas as IAs' },
-            ...(isAdmin ? [{ to: '/configuracoes/ias', label: 'Adicionar IA', icon: Plus, desc: 'Nova IA ao escritório' }] : []),
-          ].map(({ to, label, icon: Icon, desc }) => (
-            <Link
-              key={to}
-              to={to}
-              className="flex items-center gap-3 p-4 bg-gray-900 border border-gray-800 hover:border-brand-700/50 rounded-xl transition-colors group"
-            >
-              <div className="w-9 h-9 bg-brand-600/20 rounded-lg flex items-center justify-center">
-                <Icon className="w-5 h-5 text-brand-400" />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-white">{label}</p>
-                <p className="text-xs text-gray-500">{desc}</p>
-              </div>
-              <ChevronRight className="w-4 h-4 text-gray-600 group-hover:text-brand-400 transition-colors" />
-            </Link>
-          ))}
-
-          {/* Lista de IAs */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
-              <h4 className="text-sm font-medium text-white flex items-center gap-2">
-                <List className="w-4 h-4 text-gray-400" />
-                Suas IAs
-              </h4>
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* Agent list */}
+          <div className="lg:col-span-2 card">
+            <div className="px-5 py-4 border-b border-dark-500 flex items-center justify-between">
+              <h2 className="font-semibold text-white">Agentes</h2>
+              <button onClick={() => navigate('/organograma')} className="text-xs text-accent hover:underline">
+                Ver organograma →
+              </button>
             </div>
-            <div className="divide-y divide-gray-800/50 max-h-48 overflow-y-auto scrollbar-thin">
-              {agents.map((a) => (
-                <div
-                  key={a.id}
-                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-800/30 transition-colors cursor-pointer"
-                  onClick={() => setChatAgent(a)}
-                >
-                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLOR[a.status] ?? 'bg-gray-500'}`} />
-                  <span className="text-sm text-gray-300 flex-1 truncate">{a.nome}</span>
-                  <span className="text-xs text-gray-600 capitalize">{a.status}</span>
-                </div>
-              ))}
-              {agents.length === 0 && (
-                <p className="px-4 py-4 text-xs text-gray-600 text-center">Nenhuma IA cadastrada</p>
+            <div className="divide-y divide-dark-500">
+              {loading ? (
+                <div className="p-5 text-gray-400 text-sm">Carregando...</div>
+              ) : agents.length === 0 ? (
+                <div className="p-5 text-gray-400 text-sm">Nenhum agente cadastrado.</div>
+              ) : (
+                agents.map((agent) => (
+                  <div
+                    key={agent.id}
+                    onClick={() => navigate(`/organograma`)}
+                    className="flex items-center gap-4 px-5 py-3.5 hover:bg-dark-700 cursor-pointer transition-colors"
+                  >
+                    <div
+                      className={`w-10 h-10 rounded-full flex items-center justify-center text-xl flex-shrink-0 ${agent.is_zeus ? 'animate-pulse-zeus' : ''}`}
+                      style={{ backgroundColor: agent.color + '22', border: `2px solid ${agent.color}` }}
+                    >
+                      {agent.emoji}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-white text-sm truncate">{agent.name}</p>
+                        {agent.is_zeus && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-zeus/10 text-zeus border border-zeus/20">
+                            Zeus
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 truncate">{agent.description ?? agent.role}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <StatusDot status={agent.status} />
+                      <span className="text-xs text-gray-500 capitalize">{agent.status}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-medium text-white">{agent.tasks_done}</p>
+                      <p className="text-xs text-gray-500">tarefas</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Activity log */}
+          <div className="card">
+            <div className="px-5 py-4 border-b border-dark-500">
+              <h2 className="font-semibold text-white">Atividade recente</h2>
+            </div>
+            <div className="p-3 space-y-1 max-h-80 overflow-auto">
+              {activityLog.length === 0 ? (
+                <p className="text-gray-400 text-sm p-2">Sem atividade.</p>
+              ) : (
+                activityLog.map((log) => (
+                  <div key={log.id} className="px-2 py-1.5 rounded hover:bg-dark-700 transition-colors">
+                    <p className="text-sm text-gray-200">{log.action}</p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(log.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                ))
               )}
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Chat modal */}
-      {chatAgent && (
-        <ChatIA agent={chatAgent} onClose={() => setChatAgent(null)} />
-      )}
+        {/* Recent tasks */}
+        {recentTasks.length > 0 && (
+          <div className="card">
+            <div className="px-5 py-4 border-b border-dark-500">
+              <h2 className="font-semibold text-white">Tarefas de hoje</h2>
+            </div>
+            <div className="divide-y divide-dark-500">
+              {recentTasks.map((task) => (
+                <div key={task.id} className="flex items-center gap-4 px-5 py-3">
+                  <span className={`text-xs font-medium uppercase ${taskStatusColor[task.status]}`}>
+                    {task.status}
+                  </span>
+                  <p className="flex-1 text-sm text-gray-200 truncate">{task.title}</p>
+                  <p className="text-xs text-gray-500">
+                    {new Date(task.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
