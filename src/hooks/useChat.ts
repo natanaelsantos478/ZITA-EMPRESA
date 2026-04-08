@@ -1,126 +1,152 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import type { ChatMessage } from '../types'
+import type { IaConversa, IaMensagem } from '../types'
+import { useAuth } from '../contexts/AuthContext'
 
-const SESSION_PREFIX = 'zita_chat_'
+export function useChat(agentId: string) {
+  const { user, profile, companyId } = useAuth()
+  const [conversa, setConversa] = useState<IaConversa | null>(null)
+  const [mensagens, setMensagens] = useState<IaMensagem[]>([])
+  const [loading, setLoading] = useState(false)
+  const [typing, setTyping] = useState(false)
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
 
-function getSessionId(agentId: string): string {
-  const key = `${SESSION_PREFIX}${agentId}`
-  let sid = sessionStorage.getItem(key)
-  if (!sid) {
-    sid = crypto.randomUUID()
-    sessionStorage.setItem(key, sid)
-  }
-  return sid
-}
-
-export function useChat(agentId: string, companyId: string) {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [loading, setLoading] = useState(true)
-  const [sending, setSending] = useState(false)
-  const [isTyping, setIsTyping] = useState(false)
-
-  const sessionId = getSessionId(agentId)
-
-  useEffect(() => {
-    if (!agentId) return
-
+  const initConversa = useCallback(async () => {
+    if (!companyId || !user) return
     setLoading(true)
-    supabase
-      .from('chat_messages')
-      .select('*')
-      .eq('company_id', companyId)
-      .eq('agent_id', agentId)
-      .eq('session_id', sessionId)
-      .order('created_at', { ascending: true })
-      .then(({ data }) => {
-        setMessages(data ?? [])
-        setLoading(false)
-      })
-  }, [agentId, companyId, sessionId])
 
-  // Realtime subscription for new messages
+    // Criar nova conversa
+    const { data: conv } = await supabase
+      .from('ia_conversas')
+      .insert({
+        company_id: companyId,
+        agent_id: agentId,
+        iniciada_por: user.id,
+        status: 'ativa',
+        contexto: {},
+      })
+      .select()
+      .single()
+
+    if (conv) {
+      setConversa(conv as IaConversa)
+      setMensagens([])
+    }
+    setLoading(false)
+  }, [companyId, user, agentId])
+
+  const loadConversa = useCallback(async (conversaId: string) => {
+    setLoading(true)
+    const { data: conv } = await supabase
+      .from('ia_conversas')
+      .select('*')
+      .eq('id', conversaId)
+      .single()
+
+    const { data: msgs } = await supabase
+      .from('ia_mensagens')
+      .select('*')
+      .eq('conversa_id', conversaId)
+      .order('created_at', { ascending: true })
+
+    if (conv) setConversa(conv as IaConversa)
+    if (msgs) setMensagens(msgs as IaMensagem[])
+    setLoading(false)
+  }, [])
+
   useEffect(() => {
-    if (!agentId) return
+    if (!conversa) return
+
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current)
+    }
 
     const channel = supabase
-      .channel(`chat-${agentId}-${sessionId}`)
+      .channel(`chat-${conversa.id}`)
       .on(
         'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'chat_messages',
-          filter: `agent_id=eq.${agentId}`,
-        },
+        { event: 'INSERT', schema: 'public', table: 'ia_mensagens', filter: `conversa_id=eq.${conversa.id}` },
         (payload) => {
-          const msg = payload.new as ChatMessage
-          if (msg.session_id === sessionId) {
-            setMessages((prev) => {
-              if (prev.find((m) => m.id === msg.id)) return prev
-              return [...prev, msg]
-            })
-          }
-        },
+          const nova = payload.new as IaMensagem
+          setMensagens((prev) => {
+            if (prev.find((m) => m.id === nova.id)) return prev
+            return [...prev, nova]
+          })
+          setTyping(false)
+        }
       )
       .subscribe()
+
+    channelRef.current = channel
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [agentId, sessionId])
+  }, [conversa?.id])
 
-  const sendMessage = useCallback(
-    async (content: string) => {
-      if (!content.trim() || sending) return
+  const sendMessage = useCallback(async (conteudo: string) => {
+    if (!conversa || !companyId || !profile) return
 
-      setSending(true)
-
-      // Optimistically add user message
-      const tempId = `temp-${Date.now()}`
-      const userMsg: ChatMessage = {
-        id: tempId,
+    // Inserir mensagem humana
+    const { data: msgHumana } = await supabase
+      .from('ia_mensagens')
+      .insert({
+        conversa_id: conversa.id,
         company_id: companyId,
-        agent_id: agentId,
-        session_id: sessionId,
-        role: 'user',
-        content,
-        is_action: false,
-        action_type: null,
-        action_data: null,
-        created_at: new Date().toISOString(),
-      }
-      setMessages((prev) => [...prev, userMsg])
+        remetente_tipo: 'humano',
+        remetente_id: profile.id,
+        remetente_nome: profile.nome,
+        conteudo,
+        conteudo_tipo: 'text',
+        metadados: {},
+        tokens_prompt: 0,
+        tokens_resposta: 0,
+      })
+      .select()
+      .single()
 
-      // Persist user message
-      await supabase.from('chat_messages').insert({
-        company_id: companyId,
-        agent_id: agentId,
-        session_id: sessionId,
-        role: 'user',
-        content,
-        is_action: false,
+    if (msgHumana) {
+      setMensagens((prev) => {
+        if (prev.find((m) => m.id === (msgHumana as IaMensagem).id)) return prev
+        return [...prev, msgHumana as IaMensagem]
+      })
+    }
+
+    setTyping(true)
+
+    // Chamar ia-dispatcher via Edge Function
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+
+      const resp = await supabase.functions.invoke('ia-dispatcher', {
+        body: {
+          conversa_id: conversa.id,
+          agent_id: agentId,
+          mensagem: conteudo,
+          company_id: companyId,
+        },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
 
-      // Show typing indicator
-      setIsTyping(true)
-      setSending(false)
+      if (resp.error) {
+        // Modo demonstração — inserir resposta simulada
+        await supabase.from('ia_mensagens').insert({
+          conversa_id: conversa.id,
+          company_id: companyId,
+          remetente_tipo: 'ia',
+          remetente_nome: 'Zeus',
+          conteudo: 'Recebi sua mensagem. Estou processando sua solicitação.',
+          conteudo_tipo: 'text',
+          metadados: { modo: 'demo' },
+          tokens_prompt: 0,
+          tokens_resposta: 0,
+        })
+      }
+    } catch {
+      setTyping(false)
+    }
+  }, [conversa, companyId, profile, agentId])
 
-      // Hide typing after 1.5s (real response comes via realtime or we add placeholder)
-      setTimeout(() => setIsTyping(false), 1500)
-    },
-    [agentId, companyId, sessionId, sending],
-  )
-
-  const clearHistory = useCallback(async () => {
-    await supabase
-      .from('chat_messages')
-      .delete()
-      .eq('company_id', companyId)
-      .eq('agent_id', agentId)
-      .eq('session_id', sessionId)
-    setMessages([])
-  }, [agentId, companyId, sessionId])
-
-  return { messages, loading, sending, isTyping, sendMessage, clearHistory }
+  return { conversa, mensagens, loading, typing, initConversa, loadConversa, sendMessage }
 }

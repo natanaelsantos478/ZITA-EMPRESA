@@ -47,7 +47,7 @@ export default function Sidebar() {
       <div className="px-3 py-4 border-t border-dark-500">
         <div className="px-3 py-2 mb-2">
           <p className="text-sm font-medium text-white truncate">
-            {profile?.display_name ?? profile?.email ?? 'Usuário'}
+            {profile?.nome ?? profile?.email ?? 'Usuário'}
           </p>
           <p className="text-xs text-gray-500 capitalize">{profile?.role ?? 'member'}</p>
         </div>

@@ -1,21 +1,27 @@
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+import type { ReactNode } from 'react'
+import { Loader2 } from 'lucide-react'
 
-export default function ProtectedRoute() {
-  const { user, loading } = useAuth()
+interface Props {
+  children: ReactNode
+  requireAdmin?: boolean
+}
+
+export default function ProtectedRoute({ children, requireAdmin = false }: Props) {
+  const { user, loading, isAdmin } = useAuth()
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-400 text-sm">Carregando...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-950">
+        <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
       </div>
     )
   }
 
   if (!user) return <Navigate to="/login" replace />
 
-  return <Outlet />
+  if (requireAdmin && !isAdmin) return <Navigate to="/dashboard" replace />
+
+  return <>{children}</>
 }

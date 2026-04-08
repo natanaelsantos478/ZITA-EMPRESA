@@ -1,42 +1,34 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
-interface RealtimeOptions<T> {
-  channel: string
-  table: string
-  filter?: string
-  onInsert?: (row: T) => void
-  onUpdate?: (row: T) => void
-  onDelete?: (oldRow: Partial<T>) => void
-}
+type RealtimeEvent = 'INSERT' | 'UPDATE' | 'DELETE' | '*'
 
-export function useRealtime<T>({
-  channel,
-  table,
-  filter,
-  onInsert,
-  onUpdate,
-  onDelete,
-}: RealtimeOptions<T>) {
+export function useRealtime<T>(
+  table: string,
+  filter: string | undefined,
+  callback: (payload: T) => void,
+  event: RealtimeEvent = '*'
+) {
+  const callbackRef = useRef(callback)
+  callbackRef.current = callback
+
   useEffect(() => {
+    const channelName = `${table}-${filter ?? 'all'}-${Date.now()}`
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ch = supabase
-      .channel(channel)
-      .on(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        'postgres_changes' as any,
-        { event: '*', schema: 'public', table, filter },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (payload: any) => {
-          if (payload.eventType === 'INSERT' && onInsert) onInsert(payload.new as T)
-          if (payload.eventType === 'UPDATE' && onUpdate) onUpdate(payload.new as T)
-          if (payload.eventType === 'DELETE' && onDelete) onDelete(payload.old as Partial<T>)
-        },
-      )
+    const pgConfig: any = { event, schema: 'public', table }
+    if (filter) pgConfig.filter = filter
+
+    const channel = supabase
+      .channel(channelName)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .on('postgres_changes' as any, pgConfig, (payload: any) => {
+        callbackRef.current(payload.new as T)
+      })
       .subscribe()
 
     return () => {
-      supabase.removeChannel(ch)
+      supabase.removeChannel(channel)
     }
-  }, [channel, table, filter, onInsert, onUpdate, onDelete])
+  }, [table, filter, event])
 }
