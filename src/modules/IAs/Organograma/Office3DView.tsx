@@ -6,16 +6,16 @@
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
 import * as THREE from 'three'
-import type { IaAgent } from '../../../types'
+import type { IAAgent } from '../../../types'
 import { buildOfficeScene } from '../../../lib/three-office/OfficeScene'
 import { AgentManager } from '../../../lib/three-office/AgentManager'
 import { FPSControls } from '../../../lib/three-office/FPSControls'
 
 interface Props {
-  agents: IaAgent[]
+  agents: IAAgent[]
   tarefasCounts: Record<string, number>
-  onSelectAgent: (a: IaAgent) => void
-  onChat: (a: IaAgent) => void
+  onSelectAgent: (a: IAAgent) => void
+  onChat: (a: IAAgent) => void
 }
 
 export default function Office3DView({ agents, onSelectAgent }: Props) {
@@ -192,8 +192,8 @@ export default function Office3DView({ agents, onSelectAgent }: Props) {
       {/* Hovered agent tooltip */}
       {locked && hoveredAgent && (
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 px-4 py-2 bg-black/80 border border-white/10 rounded-xl text-center">
-          <p className="text-white text-sm font-medium">{hoveredAgent.nome}</p>
-          {hoveredAgent.funcao && <p className="text-gray-400 text-xs">{hoveredAgent.funcao}</p>}
+          <p className="text-white text-sm font-medium">{hoveredAgent.name}</p>
+          {hoveredAgent.description && <p className="text-gray-400 text-xs">{hoveredAgent.description}</p>}
           <p className="text-xs text-gray-600 mt-1">Clique para selecionar</p>
         </div>
       )}

@@ -3,7 +3,7 @@
  * Manages placing/updating agent avatars in the 3D scene using live Supabase data.
  */
 import * as THREE from 'three'
-import type { IaAgent } from '../../types'
+import type { IAAgent } from '../../types'
 import { buildAvatar, type AvatarInstance } from './AgentAvatar'
 
 export class AgentManager {
@@ -15,7 +15,7 @@ export class AgentManager {
   }
 
   /** Sync scene avatars with the current agents list */
-  sync(agents: IaAgent[]): void {
+  sync(agents: IAAgent[]): void {
     const incomingIds = new Set(agents.map(a => a.id))
 
     // Remove stale avatars

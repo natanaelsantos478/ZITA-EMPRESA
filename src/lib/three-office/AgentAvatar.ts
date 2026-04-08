@@ -3,7 +3,7 @@
  * Builds a low-poly seated humanoid for each IA agent.
  */
 import * as THREE from 'three'
-import type { IaAgent } from '../../types'
+import type { IAAgent } from '../../types'
 import { DESK_POSITIONS } from './OfficeScene'
 
 export interface AvatarInstance {
@@ -35,11 +35,11 @@ function makeLabel(name: string, color: number): THREE.Sprite {
   return sprite
 }
 
-export function buildAvatar(agent: IaAgent, index: number): AvatarInstance {
+export function buildAvatar(agent: IAAgent, index: number): AvatarInstance {
   const deskPos = DESK_POSITIONS[index % DESK_POSITIONS.length]
   const group = new THREE.Group()
 
-  const agentColor = hexToInt(agent.cor_hex || '#4e5eff')
+  const agentColor = hexToInt(agent.color || '#4e5eff')
   const skin  = new THREE.MeshLambertMaterial({ color: 0xffcc99 })
   const shirt = new THREE.MeshLambertMaterial({ color: agentColor })
   const pants = new THREE.MeshLambertMaterial({ color: 0x333366 })
@@ -116,7 +116,7 @@ export function buildAvatar(agent: IaAgent, index: number): AvatarInstance {
   )
 
   // Name label sprite
-  const label = makeLabel(agent.nome, agentColor)
+  const label = makeLabel(agent.name, agentColor)
   group.add(label)
 
   // Position at desk
@@ -125,8 +125,8 @@ export function buildAvatar(agent: IaAgent, index: number): AvatarInstance {
 
   // Status-based emissive on shirt
   const statusColors: Record<string, number> = {
-    online: 0x00ff88, ocupada: 0xffcc00, aguardando: 0x4488ff,
-    offline: 0x444444, erro: 0xff2222, pausada: 0xff8800,
+    online: 0x00ff88, busy: 0xffcc00,
+    offline: 0x444444, error: 0xff2222,
   }
   const badge = new THREE.Mesh(
     new THREE.SphereGeometry(0.06, 6, 6),

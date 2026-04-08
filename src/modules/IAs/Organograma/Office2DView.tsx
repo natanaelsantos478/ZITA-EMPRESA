@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { IaAgent } from '../../../types'
+import type { IAAgent } from '../../../types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -23,12 +23,10 @@ const W = COLS * TILE      // 1056
 const H = ROWS * TILE      // 768
 
 const STATUS_COLOR: Record<string, string> = {
-  online:    '#22c55e',
-  ocupada:   '#eab308',
-  aguardando:'#3b82f6',
-  offline:   '#6b7280',
-  erro:      '#ef4444',
-  pausada:   '#f97316',
+  online:  '#22c55e',
+  busy:    '#eab308',
+  offline: '#6b7280',
+  error:   '#ef4444',
 }
 
 // Desk layout: { col, row } in tile coordinates (top-left corner of desk area)
@@ -132,7 +130,7 @@ function drawDesk(ctx: CanvasRenderingContext2D, px: number, py: number) {
 
 function drawAgent(
   ctx: CanvasRenderingContext2D,
-  agent: IaAgent,
+  agent: IAAgent,
   px: number,
   py: number,
   pulse: number,       // 0–1 breath animation
@@ -166,7 +164,7 @@ function drawAgent(
   ctx.beginPath(); ctx.ellipse(cx + 2, cy + 4, r, r * 0.6, 0, 0, Math.PI * 2); ctx.fill()
 
   // Body circle (agent color)
-  const agentColor = agent.cor_hex || '#4e5eff'
+  const agentColor = agent.color || '#4e5eff'
   ctx.fillStyle = agentColor
   ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill()
 
@@ -185,7 +183,7 @@ function drawAgent(
   ctx.beginPath(); ctx.arc(cx + 4, cy - r * 0.2, 2.5, 0, Math.PI * 2); ctx.fill()
 
   // Zeus crown
-  if (agent.tipo === 'zeus') {
+  if (agent.is_zeus) {
     ctx.fillStyle = '#f59e0b'
     ctx.beginPath()
     ctx.moveTo(cx - 10, cy - r - 2)
@@ -208,8 +206,8 @@ function drawAgent(
   ctx.lineWidth = 1.5
   ctx.stroke()
 
-  // Pulsing ring if 'ocupada'
-  if (agent.status === 'ocupada') {
+  // Pulsing ring if 'busy'
+  if (agent.status === 'busy') {
     ctx.strokeStyle = `rgba(234,179,8,${0.4 + pulse * 0.4})`
     ctx.lineWidth = 2
     ctx.beginPath(); ctx.arc(cx, cy, r + 4 + pulse * 4, 0, Math.PI * 2); ctx.stroke()
@@ -218,7 +216,7 @@ function drawAgent(
   // Name label below
   const fontSize = selected || hovered ? 12 : 10
   ctx.font = `${selected ? 'bold' : 'normal'} ${fontSize}px 'Segoe UI', sans-serif`
-  const label = agent.nome.length > 10 ? agent.nome.slice(0, 9) + '…' : agent.nome
+  const label = agent.name.length > 10 ? agent.name.slice(0, 9) + '…' : agent.name
   const textW = ctx.measureText(label).width
 
   // Label background
@@ -238,10 +236,10 @@ function drawAgent(
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface Props {
-  agents: IaAgent[]
+  agents: IAAgent[]
   tarefasCounts: Record<string, number>
-  onSelectAgent: (a: IaAgent) => void
-  onChat: (a: IaAgent) => void
+  onSelectAgent: (a: IAAgent) => void
+  onChat: (a: IAAgent) => void
   selectedId?: string
 }
 
@@ -258,7 +256,7 @@ export default function Office2DView({ agents, onSelectAgent, selectedId }: Prop
   const panStartRef           = useRef({ mx: 0, my: 0, px: 0, py: 0 })
 
   const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const [tooltip, setTooltip]     = useState<{ x: number; y: number; agent: IaAgent } | null>(null)
+  const [tooltip, setTooltip]     = useState<{ x: number; y: number; agent: IAAgent } | null>(null)
 
   // ── Draw loop ───────────────────────────────────────────────────────────────
   const draw = useCallback(() => {
@@ -460,15 +458,15 @@ export default function Office2DView({ agents, onSelectAgent, selectedId }: Prop
           style={{ left: tooltip.x + 14, top: tooltip.y - 10 }}
         >
           <div className="bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 shadow-xl min-w-[140px]">
-            <p className="text-sm font-semibold text-white">{tooltip.agent.nome}</p>
-            {tooltip.agent.funcao && <p className="text-xs text-gray-400 mt-0.5">{tooltip.agent.funcao}</p>}
+            <p className="text-sm font-semibold text-white">{tooltip.agent.name}</p>
+            {tooltip.agent.description && <p className="text-xs text-gray-400 mt-0.5">{tooltip.agent.description}</p>}
             <div className="flex items-center gap-1.5 mt-1.5">
               <span
                 className="w-2 h-2 rounded-full"
                 style={{ backgroundColor: STATUS_COLOR[tooltip.agent.status] ?? '#6b7280' }}
               />
               <span className="text-xs text-gray-500 capitalize">{tooltip.agent.status}</span>
-              {tooltip.agent.tipo === 'zeus' && (
+              {tooltip.agent.is_zeus && (
                 <span className="text-xs text-yellow-500 ml-1">👑 Mestre</span>
               )}
             </div>

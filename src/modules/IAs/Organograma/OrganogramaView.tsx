@@ -1,60 +1,24 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Boxes, Gamepad2, List, Plus } from 'lucide-react'
 import { supabase } from '../../../lib/supabase'
 import { useAuth } from '../../../contexts/AuthContext'
-import type { IAAgent } from '../../../types'
-import IANode from './IANode'
+import type { IAAgent, Task } from '../../../types'
+import Office3DView from './Office3DView'
+import Office2DView from './Office2DView'
+import AgentListView from './AgentListView'
 import ControleIAPanel from '../ControleIA/ControleIAPanel'
 import ChatIA from '../Chat/ChatIA'
 import Header from '../../../components/Layout/Header'
 
-// Draw SVG connection lines between nodes
-function ConnectionLines({ agents }: { agents: IAAgent[] }) {
-  const agentMap = new Map(agents.map((a) => [a.id, a]))
+type ViewMode = '3d' | '2d' | 'lista'
 
-  const lines: { x1: number; y1: number; x2: number; y2: number; color: string }[] = []
+const VIEWS = [
+  { mode: '3d' as ViewMode,    icon: Boxes,    title: '3D',    desc: 'Escritório 3D (FPS)' },
+  { mode: '2d' as ViewMode,    icon: Gamepad2, title: '2D',    desc: 'Escritório 2D top-down' },
+  { mode: 'lista' as ViewMode, icon: List,     title: 'Lista', desc: 'Tabela de agentes' },
+]
 
-  for (const agent of agents) {
-    if (agent.parent_id) {
-      const parent = agentMap.get(agent.parent_id)
-      if (parent) {
-        lines.push({
-          x1: parent.organograma_x,
-          y1: parent.organograma_y,
-          x2: agent.organograma_x,
-          y2: agent.organograma_y,
-          color: parent.is_zeus ? '#f5c84240' : '#4a9eff30',
-        })
-      }
-    }
-  }
-
-  return (
-    <svg
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
-    >
-      <defs>
-        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-          <polygon points="0 0, 8 3, 0 6" fill="#4a9eff30" />
-        </marker>
-      </defs>
-      {lines.map((l, i) => (
-        <line
-          key={i}
-          x1={l.x1}
-          y1={l.y1}
-          x2={l.x2}
-          y2={l.y2}
-          stroke={l.color}
-          strokeWidth={1.5}
-          strokeDasharray="4 3"
-          markerEnd="url(#arrowhead)"
-        />
-      ))}
-    </svg>
-  )
-}
-
-// Chat modal
 function ChatModal({ agent, companyId, onClose }: { agent: IAAgent; companyId: string; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -76,13 +40,18 @@ function ChatModal({ agent, companyId, onClose }: { agent: IAAgent; companyId: s
 }
 
 export default function OrganogramaView() {
-  const { companyId } = useAuth()
-  const canvasRef = useRef<HTMLDivElement>(null)
+  const { companyId, profile } = useAuth()
+  const navigate = useNavigate()
+  const isAdmin = profile?.role === 'owner' || profile?.role === 'admin'
+
+  const [viewMode, setViewMode] = useState<ViewMode>(() =>
+    (localStorage.getItem('zita_view_mode') as ViewMode) ?? '2d'
+  )
   const [agents, setAgents] = useState<IAAgent[]>([])
   const [loading, setLoading] = useState(true)
+  const [tarefasCounts, setTarefasCounts] = useState<Record<string, number>>({})
   const [selectedAgent, setSelectedAgent] = useState<IAAgent | null>(null)
   const [chatAgent, setChatAgent] = useState<IAAgent | null>(null)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   // Load agents
   useEffect(() => {
@@ -93,8 +62,24 @@ export default function OrganogramaView() {
       .eq('company_id', companyId)
       .order('is_zeus', { ascending: false })
       .then(({ data }) => {
-        setAgents(data ?? [])
+        setAgents((data ?? []) as IAAgent[])
         setLoading(false)
+      })
+  }, [companyId])
+
+  // Load task counts
+  useEffect(() => {
+    supabase
+      .from('tasks')
+      .select('agent_id')
+      .eq('company_id', companyId)
+      .in('status', ['pending', 'running'])
+      .then(({ data }) => {
+        const counts: Record<string, number> = {}
+        ;(data ?? []).forEach((t: Pick<Task, 'agent_id'>) => {
+          counts[t.agent_id] = (counts[t.agent_id] ?? 0) + 1
+        })
+        setTarefasCounts(counts)
       })
   }, [companyId])
 
@@ -119,102 +104,111 @@ export default function OrganogramaView() {
     return () => { supabase.removeChannel(channel) }
   }, [companyId])
 
-  const handleNodeClick = useCallback((agent: IAAgent) => {
-    setSelectedAgent(agent)
-    setSidebarOpen(true)
-  }, [])
-
-  const handleNodeDoubleClick = useCallback((agent: IAAgent) => {
-    setChatAgent(agent)
-  }, [])
-
-  const handleDragEnd = useCallback(async (agentId: string, x: number, y: number) => {
-    // Optimistic update
-    setAgents((prev) => prev.map((a) => a.id === agentId ? { ...a, organograma_x: x, organograma_y: y } : a))
-
-    await supabase
-      .from('ia_agents')
-      .update({ organograma_x: x, organograma_y: y })
-      .eq('id', agentId)
-      .eq('company_id', companyId)
-  }, [companyId])
-
-  const handleCanvasClick = useCallback(() => {
+  const handleChangeView = useCallback((mode: ViewMode) => {
+    setViewMode(mode)
+    localStorage.setItem('zita_view_mode', mode)
     setSelectedAgent(null)
-    setSidebarOpen(false)
   }, [])
+
+  const handleSelectAgent = useCallback((agent: IAAgent) => {
+    setSelectedAgent(agent)
+  }, [])
+
+  const handleChat = useCallback((agent: IAAgent) => {
+    setChatAgent(agent)
+    setSelectedAgent(null)
+  }, [])
+
+  const activeView = VIEWS.find(v => v.mode === viewMode)!
+
+  if (loading) {
+    return (
+      <div className="flex flex-col flex-1 min-h-0 items-center justify-center">
+        <div className="w-10 h-10 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+        <p className="text-gray-400 text-sm mt-3">Carregando agentes...</p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <Header
         title="Organograma"
-        subtitle="Clique para selecionar · Duplo clique para chat · Arraste para reposicionar"
+        subtitle={activeView.desc}
         actions={
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 text-xs text-gray-400">
-              <span className="status-dot status-dot-online" />Online
-              <span className="status-dot status-dot-busy ml-2" />Ocupado
-              <span className="status-dot status-dot-offline ml-2" />Offline
+          <div className="flex items-center gap-2">
+            {/* View selector */}
+            <div className="flex items-center bg-dark-700 border border-dark-500 rounded-lg p-1 gap-0.5">
+              {VIEWS.map(({ mode, icon: Icon, title }) => (
+                <button
+                  key={mode}
+                  onClick={() => handleChangeView(mode)}
+                  title={title}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    viewMode === mode
+                      ? 'bg-accent text-white shadow-sm'
+                      : 'text-gray-400 hover:text-white hover:bg-dark-600'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {title}
+                </button>
+              ))}
             </div>
+
+            {/* New agent (admin only) */}
+            {isAdmin && (
+              <button
+                onClick={() => navigate('/configuracoes')}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent/90 text-white rounded-lg text-xs font-medium transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Nova IA
+              </button>
+            )}
           </div>
         }
       />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Canvas */}
-        <div
-          ref={canvasRef}
-          className="flex-1 relative overflow-hidden bg-dark-900"
-          style={{
-            backgroundImage: 'radial-gradient(circle, #2a2f42 1px, transparent 1px)',
-            backgroundSize: '32px 32px',
-          }}
-          onClick={handleCanvasClick}
-        >
-          {loading ? (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="flex flex-col items-center gap-3">
-                <div className="w-10 h-10 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                <p className="text-gray-400 text-sm">Carregando organograma...</p>
-              </div>
-            </div>
-          ) : agents.length === 0 ? (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <span className="text-5xl">🤖</span>
-                <p className="text-gray-400 mt-3">Nenhum agente cadastrado ainda.</p>
-              </div>
-            </div>
-          ) : (
-            <>
-              <ConnectionLines agents={agents} />
-              {agents.map((agent) => (
-                <IANode
-                  key={agent.id}
-                  agent={agent}
-                  selected={selectedAgent?.id === agent.id}
-                  onClick={handleNodeClick}
-                  onDoubleClick={handleNodeDoubleClick}
-                  onDragEnd={handleDragEnd}
-                />
-              ))}
-            </>
+        {/* Main view */}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {viewMode === '3d' && (
+            <Office3DView
+              agents={agents}
+              tarefasCounts={tarefasCounts}
+              onSelectAgent={handleSelectAgent}
+              onChat={handleChat}
+            />
           )}
-
-          {/* Help hint */}
-          <div className="absolute bottom-4 left-4 text-xs text-gray-600 select-none pointer-events-none">
-            💡 Arraste os nós para reorganizar • Duplo clique para abrir chat
-          </div>
+          {viewMode === '2d' && (
+            <Office2DView
+              agents={agents}
+              tarefasCounts={tarefasCounts}
+              onSelectAgent={handleSelectAgent}
+              onChat={handleChat}
+              selectedId={selectedAgent?.id}
+            />
+          )}
+          {viewMode === 'lista' && (
+            <AgentListView
+              agents={agents}
+              tarefasCounts={tarefasCounts}
+              onSelectAgent={handleSelectAgent}
+              onChat={handleChat}
+              selectedId={selectedAgent?.id}
+            />
+          )}
         </div>
 
-        {/* Sidebar panel */}
-        {sidebarOpen && selectedAgent && (
+        {/* Side panel for 2D and lista */}
+        {viewMode !== '3d' && selectedAgent && (
           <div className="w-80 flex-shrink-0 bg-dark-800 border-l border-dark-500 overflow-hidden flex flex-col">
             <ControleIAPanel
               agent={selectedAgent}
               companyId={companyId}
-              onClose={() => { setSidebarOpen(false); setSelectedAgent(null) }}
-              onOpenChat={() => { setChatAgent(selectedAgent); setSidebarOpen(false) }}
+              onClose={() => setSelectedAgent(null)}
+              onOpenChat={() => { setChatAgent(selectedAgent); setSelectedAgent(null) }}
             />
           </div>
         )}
@@ -228,6 +222,7 @@ export default function OrganogramaView() {
           onClose={() => setChatAgent(null)}
         />
       )}
+
     </div>
   )
 }
