@@ -1,265 +1,206 @@
-import { useState, useEffect, useRef, FormEvent } from 'react'
+import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Brain, Eye, EyeOff, Loader2, Lock, User } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
-const LOCK_KEY = 'login_blocked_until'
-const ATTEMPTS_KEY = 'login_attempts'
-const MAX_ATTEMPTS = 5
-const BLOCK_SECONDS = 30
+const LOCKOUT_KEY = 'zita_login_lockout'
+const LOCKOUT_MS = 30_000
 
-function getRemainingBlock(): number {
-  const until = parseInt(localStorage.getItem(LOCK_KEY) ?? '0', 10)
-  const remaining = Math.ceil((until - Date.now()) / 1000)
-  return remaining > 0 ? remaining : 0
+function getLockoutRemaining(): number {
+  const lockedAt = localStorage.getItem(LOCKOUT_KEY)
+  if (!lockedAt) return 0
+  const elapsed = Date.now() - Number(lockedAt)
+  if (elapsed >= LOCKOUT_MS) return 0
+  return Math.ceil((LOCKOUT_MS - elapsed) / 1000)
+}
+
+// Left panel: animated SVG organogram decoration
+function OrgSVG() {
+  return (
+    <svg viewBox="0 0 300 300" className="w-full max-w-xs opacity-20" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* Lines */}
+      <line x1="150" y1="60" x2="80" y2="140" stroke="#f5c842" strokeWidth="1.5" />
+      <line x1="150" y1="60" x2="220" y2="140" stroke="#f5c842" strokeWidth="1.5" />
+      <line x1="80" y1="160" x2="50" y2="230" stroke="#4a9eff" strokeWidth="1" />
+      <line x1="80" y1="160" x2="110" y2="230" stroke="#4a9eff" strokeWidth="1" />
+      <line x1="220" y1="160" x2="190" y2="230" stroke="#4a9eff" strokeWidth="1" />
+      <line x1="220" y1="160" x2="250" y2="230" stroke="#4a9eff" strokeWidth="1" />
+      {/* Zeus node */}
+      <circle cx="150" cy="45" r="22" fill="#f5c842" fillOpacity="0.15" stroke="#f5c842" strokeWidth="2" />
+      <text x="150" y="50" textAnchor="middle" fill="#f5c842" fontSize="18">⚡</text>
+      {/* Child nodes */}
+      <circle cx="80" cy="155" r="16" fill="#4a9eff" fillOpacity="0.1" stroke="#4a9eff" strokeWidth="1.5" />
+      <text x="80" y="160" textAnchor="middle" fill="#4a9eff" fontSize="13">🔍</text>
+      <circle cx="220" cy="155" r="16" fill="#4a9eff" fillOpacity="0.1" stroke="#4a9eff" strokeWidth="1.5" />
+      <text x="220" y="160" textAnchor="middle" fill="#4a9eff" fontSize="13">🎯</text>
+      {/* Grandchild nodes */}
+      <circle cx="50" cy="240" r="12" fill="#4a9eff" fillOpacity="0.08" stroke="#4a9eff" strokeWidth="1" />
+      <text x="50" y="245" textAnchor="middle" fill="#4a9eff" fontSize="10">💰</text>
+      <circle cx="110" cy="240" r="12" fill="#4a9eff" fillOpacity="0.08" stroke="#4a9eff" strokeWidth="1" />
+      <text x="110" y="245" textAnchor="middle" fill="#4a9eff" fontSize="10">📱</text>
+      <circle cx="190" cy="240" r="12" fill="#4a9eff" fillOpacity="0.08" stroke="#4a9eff" strokeWidth="1" />
+      <text x="190" y="245" textAnchor="middle" fill="#4a9eff" fontSize="10">🤖</text>
+      <circle cx="250" cy="240" r="12" fill="#4a9eff" fillOpacity="0.08" stroke="#4a9eff" strokeWidth="1" />
+      <text x="250" y="245" textAnchor="middle" fill="#4a9eff" fontSize="10">⚡</text>
+    </svg>
+  )
 }
 
 export default function Login() {
-  const { signIn, user, loading: authLoading } = useAuth()
+  const { signIn, user } = useAuth()
   const navigate = useNavigate()
 
   const [login, setLogin] = useState('')
-  const [senha, setSenha] = useState('')
-  const [mostrarSenha, setMostrarSenha] = useState(false)
-  const [manterConectado, setManterConectado] = useState(false)
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [erro, setErro] = useState('')
-  const [blockedFor, setBlockedFor] = useState(getRemainingBlock)
+  const [lockoutSeconds, setLockoutSeconds] = useState(getLockoutRemaining)
+  const [showPassword, setShowPassword] = useState(false)
 
-  const loginRef = useRef<HTMLInputElement>(null)
-
-  // Redirect se já logado
   useEffect(() => {
-    if (!authLoading && user) navigate('/dashboard', { replace: true })
-  }, [user, authLoading, navigate])
+    if (user) navigate('/dashboard', { replace: true })
+  }, [user, navigate])
 
-  // Countdown do bloqueio
+  // Countdown timer for lockout
   useEffect(() => {
-    if (blockedFor <= 0) return
-    const interval = setInterval(() => {
-      const rem = getRemainingBlock()
-      setBlockedFor(rem)
-      if (rem <= 0) {
-        localStorage.removeItem(LOCK_KEY)
-        localStorage.removeItem(ATTEMPTS_KEY)
-      }
+    if (lockoutSeconds <= 0) return
+    const timer = setInterval(() => {
+      const remaining = getLockoutRemaining()
+      setLockoutSeconds(remaining)
+      if (remaining <= 0) clearInterval(timer)
     }, 1000)
-    return () => clearInterval(interval)
-  }, [blockedFor])
+    return () => clearInterval(timer)
+  }, [lockoutSeconds])
 
-  useEffect(() => {
-    loginRef.current?.focus()
-  }, [])
-
-  const handleSubmit = async (e: FormEvent) => {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-
-    if (blockedFor > 0) return
-
+    if (lockoutSeconds > 0) return
+    setError('')
     setLoading(true)
-    setErro('')
 
-    const { error } = await signIn(login.trim(), senha)
+    const { error: signInError } = await signIn(login, password)
 
-    if (error) {
-      setSenha('')
-      const attempts = parseInt(localStorage.getItem(ATTEMPTS_KEY) ?? '0', 10) + 1
-      localStorage.setItem(ATTEMPTS_KEY, String(attempts))
-
-      if (attempts >= MAX_ATTEMPTS) {
-        const blockUntil = Date.now() + BLOCK_SECONDS * 1000
-        localStorage.setItem(LOCK_KEY, String(blockUntil))
-        setBlockedFor(BLOCK_SECONDS)
-        localStorage.removeItem(ATTEMPTS_KEY)
-      }
-
-      setErro('Login ou senha incorretos')
+    if (signInError) {
+      setError(signInError)
+      const remaining = getLockoutRemaining()
+      if (remaining > 0) setLockoutSeconds(remaining)
     } else {
-      localStorage.removeItem(ATTEMPTS_KEY)
-      localStorage.removeItem(LOCK_KEY)
       navigate('/dashboard', { replace: true })
     }
 
     setLoading(false)
   }
 
-  const isDisabled = loading || blockedFor > 0 || authLoading
-
   return (
     <div className="min-h-screen flex">
-      {/* Esquerda — painel de branding */}
-      <div className="hidden lg:flex flex-col w-[60%] bg-gradient-to-br from-gray-950 via-gray-900 to-brand-950 relative overflow-hidden p-12">
-        {/* Grid de fundo */}
-        <div
-          className="absolute inset-0 opacity-10"
-          style={{
-            backgroundImage: 'radial-gradient(circle, #4e5eff 1px, transparent 1px)',
-            backgroundSize: '32px 32px',
-          }}
-        />
-
-        {/* Logo */}
-        <div className="relative flex items-center gap-3 mb-auto">
-          <div className="w-12 h-12 bg-brand-600 rounded-2xl flex items-center justify-center shadow-lg shadow-brand-900/50">
-            <Brain className="w-7 h-7 text-white" />
+      {/* Left panel */}
+      <div className="hidden lg:flex flex-col items-center justify-center w-1/2 bg-dark-800 border-r border-dark-500 p-12">
+        <OrgSVG />
+        <div className="text-center mt-6">
+          <h2 className="text-2xl font-bold text-white mb-2">Escritório de IAs</h2>
+          <p className="text-gray-400 text-sm max-w-xs">
+            Gerencie, monitore e converse com sua equipe de agentes de inteligência artificial em tempo real.
+          </p>
+        </div>
+        <div className="mt-8 flex gap-6 text-center">
+          <div>
+            <p className="text-2xl font-bold text-zeus">8+</p>
+            <p className="text-xs text-gray-500 mt-1">Agentes IA</p>
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white">Escritório de IA</h1>
-            <p className="text-sm text-brand-400">Centro de controle das suas IAs</p>
+            <p className="text-2xl font-bold text-accent">24/7</p>
+            <p className="text-xs text-gray-500 mt-1">Monitoramento</p>
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-emerald-400">100%</p>
+            <p className="text-xs text-gray-500 mt-1">Seguro</p>
           </div>
         </div>
-
-        {/* Organograma ilustrativo SVG */}
-        <div className="relative flex-1 flex items-center justify-center">
-          <svg viewBox="0 0 400 300" className="w-full max-w-md opacity-60">
-            {/* Linhas */}
-            <line x1="200" y1="80" x2="100" y2="180" stroke="#4e5eff" strokeWidth="2" strokeDasharray="4,4" />
-            <line x1="200" y1="80" x2="200" y2="180" stroke="#4e5eff" strokeWidth="2" strokeDasharray="4,4" />
-            <line x1="200" y1="80" x2="300" y2="180" stroke="#4e5eff" strokeWidth="2" strokeDasharray="4,4" />
-            <line x1="100" y1="180" x2="60" y2="260" stroke="#6b7280" strokeWidth="1.5" strokeDasharray="4,4" />
-            <line x1="100" y1="180" x2="140" y2="260" stroke="#6b7280" strokeWidth="1.5" strokeDasharray="4,4" />
-
-            {/* Zeus - nó principal */}
-            <rect x="160" y="40" width="80" height="40" rx="8" fill="#3a40f5" stroke="#7487ff" strokeWidth="1.5" />
-            <text x="200" y="65" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">Zeus</text>
-
-            {/* Nós filhos */}
-            {[
-              { x: 60, y: 160, label: 'Vendas', color: '#22c55e' },
-              { x: 160, y: 160, label: 'Suporte', color: '#eab308' },
-              { x: 260, y: 160, label: 'Marketing', color: '#3b82f6' },
-            ].map(({ x, y, label, color }) => (
-              <g key={label}>
-                <rect x={x} y={y} width="80" height="36" rx="6" fill="#1f2937" stroke={color} strokeWidth="1.5" />
-                <circle cx={x + 10} cy={y + 18} r="5" fill={color} />
-                <text x={x + 22} y={y + 22} fill="#e5e7eb" fontSize="10">{label}</text>
-              </g>
-            ))}
-
-            {/* Nós netos */}
-            {[
-              { x: 20, y: 245, label: 'Bot 1', color: '#6b7280' },
-              { x: 100, y: 245, label: 'Bot 2', color: '#6b7280' },
-            ].map(({ x, y, label, color }) => (
-              <g key={label}>
-                <rect x={x} y={y} width="60" height="28" rx="5" fill="#111827" stroke={color} strokeWidth="1" />
-                <text x={x + 30} y={y + 18} textAnchor="middle" fill="#9ca3af" fontSize="9">{label}</text>
-              </g>
-            ))}
-          </svg>
-        </div>
-
-        {/* Rodapé branding */}
-        <p className="relative text-sm text-gray-600 mt-auto">
-          ZITA — Escritório de IA em cloud. Nenhum computador local precisa ficar ligado.
-        </p>
       </div>
 
-      {/* Direita — formulário */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-white">
+      {/* Right panel */}
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 bg-dark-900">
         <div className="w-full max-w-sm">
-          {/* Logo mobile */}
-          <div className="lg:hidden flex items-center gap-2 mb-8">
-            <div className="w-9 h-9 bg-brand-600 rounded-xl flex items-center justify-center">
-              <Brain className="w-5 h-5 text-white" />
-            </div>
-            <span className="font-bold text-gray-900">Escritório de IA</span>
+          <div className="text-center mb-8">
+            <span className="text-5xl">🏢</span>
+            <h1 className="text-2xl font-bold text-white mt-3">ZITA</h1>
+            <p className="text-gray-400 text-sm mt-1">Acesse o Escritório de IA</p>
           </div>
 
-          <h2 className="text-2xl font-bold text-gray-900 mb-1">Entrar</h2>
-          <p className="text-sm text-gray-500 mb-8">Use seu código de acesso ou e-mail</p>
-
-          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-            {/* Login */}
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="login" className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">
                 Login
               </label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  ref={loginRef}
-                  id="login"
-                  type="text"
-                  autoComplete="username"
-                  placeholder="00001 ou email completo"
-                  value={login}
-                  onChange={(e) => setLogin(e.target.value)}
-                  disabled={isDisabled}
-                  required
-                  className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:opacity-50 disabled:bg-gray-50"
-                />
-              </div>
+              <input
+                type="text"
+                value={login}
+                onChange={(e) => setLogin(e.target.value)}
+                className="input-field"
+                placeholder="00001 ou email completo"
+                autoComplete="username"
+                disabled={loading || lockoutSeconds > 0}
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Digite seu código (ex: 00001) ou e-mail completo
+              </p>
             </div>
 
-            {/* Senha */}
             <div>
-              <label htmlFor="senha" className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">
                 Senha
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
-                  id="senha"
-                  type={mostrarSenha ? 'text' : 'password'}
-                  autoComplete="current-password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="input-field pr-10"
                   placeholder="••••••••"
-                  value={senha}
-                  onChange={(e) => setSenha(e.target.value)}
-                  disabled={isDisabled}
+                  autoComplete="current-password"
+                  disabled={loading || lockoutSeconds > 0}
                   required
-                  className="w-full pl-9 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:opacity-50 disabled:bg-gray-50"
                 />
                 <button
                   type="button"
-                  onClick={() => setMostrarSenha(!mostrarSenha)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200"
                   tabIndex={-1}
                 >
-                  {mostrarSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPassword ? '🙈' : '👁'}
                 </button>
               </div>
             </div>
 
-            {/* Manter conectado */}
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={manterConectado}
-                onChange={(e) => setManterConectado(e.target.checked)}
-                className="w-4 h-4 text-brand-600 border-gray-300 rounded focus:ring-brand-500"
-              />
-              <span className="text-sm text-gray-600">Manter conectado</span>
-            </label>
-
-            {/* Erro */}
-            {erro && (
-              <div className="px-3 py-2.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                {erro}
+            {error && (
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+                <span>⚠</span>
+                {error}
               </div>
             )}
 
-            {/* Bloqueio */}
-            {blockedFor > 0 && (
-              <div className="px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-                Muitas tentativas. Aguarde {blockedFor}s antes de tentar novamente.
+            {lockoutSeconds > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-sm">
+                <span>🔒</span>
+                Aguarde {lockoutSeconds}s para tentar novamente
               </div>
             )}
 
-            {/* Botão */}
             <button
               type="submit"
-              disabled={isDisabled || !login || !senha}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
+              disabled={loading || lockoutSeconds > 0 || !login || !password}
+              className="btn-primary w-full py-3 text-base"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              {blockedFor > 0 ? `Aguarde ${blockedFor}s` : loading ? 'Entrando...' : 'Entrar'}
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Entrando...
+                </span>
+              ) : (
+                'Entrar'
+              )}
             </button>
           </form>
-
-          <p className="text-xs text-gray-400 text-center mt-8">
-            ZITA Escritório de IA &copy; {new Date().getFullYear()}
-          </p>
         </div>
       </div>
     </div>

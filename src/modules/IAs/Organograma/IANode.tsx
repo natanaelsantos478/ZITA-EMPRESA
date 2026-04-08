@@ -1,125 +1,176 @@
-import { MessageSquare, AlertCircle, CheckCircle2, Zap } from 'lucide-react'
-import type { IaAgent } from '../../../types'
+import { useRef, useCallback } from 'react'
+import type { IAAgent } from '../../../types'
 
-const STATUS_COLOR: Record<string, string> = {
-  online:    '#22c55e',
-  ocupada:   '#eab308',
-  aguardando:'#3b82f6',
-  offline:   '#6b7280',
-  erro:      '#ef4444',
-  pausada:   '#f97316',
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  online:    'Online',
-  ocupada:   'Ocupada',
-  aguardando:'Aguardando',
-  offline:   'Offline',
-  erro:      'Erro',
-  pausada:   'Pausada',
-}
-
-interface Props {
-  agent: IaAgent
+interface IANodeProps {
+  agent: IAAgent
   selected: boolean
-  onSelect: () => void
-  onChat: () => void
-  tarefasCount: number
+  onClick: (agent: IAAgent) => void
+  onDoubleClick: (agent: IAAgent) => void
+  onDragEnd: (agentId: string, x: number, y: number) => void
 }
 
-export default function IANode({ agent, selected, onSelect, onChat, tarefasCount }: Props) {
-  const isZeus = agent.tipo === 'zeus'
-  const color = STATUS_COLOR[agent.status] ?? '#6b7280'
-  const isPulsing = agent.status === 'ocupada'
+const STATUS_COLORS: Record<IAAgent['status'], string> = {
+  online: '#34d399',
+  busy: '#fbbf24',
+  offline: '#6b7280',
+  error: '#f87171',
+}
+
+const STATUS_SHADOWS: Record<IAAgent['status'], string> = {
+  online: '0 0 6px rgba(52,211,153,0.7)',
+  busy: '0 0 6px rgba(251,191,36,0.7)',
+  offline: 'none',
+  error: '0 0 6px rgba(248,113,113,0.7)',
+}
+
+export default function IANode({ agent, selected, onClick, onDoubleClick, onDragEnd }: IANodeProps) {
+  const dragState = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
+  const nodeRef = useRef<HTMLDivElement>(null)
+  const isDragging = useRef(false)
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      isDragging.current = false
+      dragState.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: agent.organograma_x,
+        origY: agent.organograma_y,
+      }
+
+      function onMove(me: MouseEvent) {
+        if (!dragState.current || !nodeRef.current) return
+        const dx = me.clientX - dragState.current.startX
+        const dy = me.clientY - dragState.current.startY
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) isDragging.current = true
+        nodeRef.current.style.left = `${dragState.current.origX + dx}px`
+        nodeRef.current.style.top = `${dragState.current.origY + dy}px`
+        nodeRef.current.classList.add('ia-node-dragging')
+      }
+
+      function onUp(ue: MouseEvent) {
+        document.removeEventListener('mousemove', onMove)
+        document.removeEventListener('mouseup', onUp)
+        if (!nodeRef.current) return
+        nodeRef.current.classList.remove('ia-node-dragging')
+        if (isDragging.current && dragState.current) {
+          const dx = ue.clientX - dragState.current.startX
+          const dy = ue.clientY - dragState.current.startY
+          const newX = dragState.current.origX + dx
+          const newY = dragState.current.origY + dy
+          onDragEnd(agent.id, newX, newY)
+        }
+        dragState.current = null
+      }
+
+      document.addEventListener('mousemove', onMove)
+      document.addEventListener('mouseup', onUp)
+    },
+    [agent, onDragEnd],
+  )
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (!isDragging.current) onClick(agent)
+    },
+    [agent, onClick],
+  )
+
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      onDoubleClick(agent)
+    },
+    [agent, onDoubleClick],
+  )
+
+  const size = agent.is_zeus ? 84 : 64
+  const fontSize = agent.is_zeus ? '2rem' : '1.5rem'
 
   return (
     <div
-      onClick={onSelect}
-      className={`
-        relative bg-gray-900 rounded-xl cursor-pointer select-none transition-all duration-200
-        ${isZeus
-          ? 'w-52 border-2 border-yellow-500/70 shadow-lg shadow-yellow-500/20'
-          : 'w-44 border border-gray-700 hover:border-gray-500'
-        }
-        ${selected ? 'ring-2 ring-brand-500 ring-offset-2 ring-offset-gray-950' : ''}
-      `}
-      style={{ borderColor: selected ? undefined : isZeus ? undefined : agent.cor_hex + '66' }}
+      ref={nodeRef}
+      style={{
+        position: 'absolute',
+        left: agent.organograma_x,
+        top: agent.organograma_y,
+        width: size,
+        height: size,
+        transform: 'translate(-50%, -50%)',
+        cursor: 'grab',
+        userSelect: 'none',
+        zIndex: selected ? 20 : agent.is_zeus ? 10 : 5,
+      }}
+      onMouseDown={handleMouseDown}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
     >
-      {/* Status pulse ring */}
-      {isPulsing && (
-        <span
-          className="absolute -top-1 -right-1 w-3 h-3 rounded-full animate-ping opacity-75"
-          style={{ backgroundColor: color }}
-        />
-      )}
+      {/* Avatar circle */}
+      <div
+        style={{
+          width: size,
+          height: size,
+          borderRadius: '50%',
+          backgroundColor: agent.color + '22',
+          border: `${agent.is_zeus ? 3 : 2}px solid ${agent.color}`,
+          boxShadow: selected
+            ? `0 0 0 3px rgba(74,158,255,0.5), ${agent.is_zeus ? '0 0 20px rgba(245,200,66,0.6)' : ''}`
+            : agent.is_zeus
+              ? '0 0 20px rgba(245,200,66,0.4)'
+              : 'none',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize,
+          transition: 'box-shadow 0.2s',
+        }}
+      >
+        {agent.emoji}
+      </div>
 
-      <div className="p-3">
-        {/* Header row */}
-        <div className="flex items-center gap-2 mb-2">
-          {/* Avatar / icon */}
-          <div
-            className={`flex-shrink-0 flex items-center justify-center rounded-lg text-white font-bold
-              ${isZeus ? 'w-10 h-10 text-lg' : 'w-8 h-8 text-sm'}`}
-            style={{ backgroundColor: agent.cor_hex || '#3a40f5' }}
-          >
-            {agent.avatar_url ? (
-              <img src={agent.avatar_url} alt={agent.nome} className="w-full h-full rounded-lg object-cover" />
-            ) : isZeus ? (
-              <Zap className="w-5 h-5 text-yellow-300" />
-            ) : (
-              agent.nome.slice(0, 2).toUpperCase()
-            )}
-          </div>
+      {/* Status dot */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: agent.is_zeus ? 4 : 2,
+          right: agent.is_zeus ? 4 : 2,
+          width: agent.is_zeus ? 14 : 10,
+          height: agent.is_zeus ? 14 : 10,
+          borderRadius: '50%',
+          backgroundColor: STATUS_COLORS[agent.status],
+          boxShadow: STATUS_SHADOWS[agent.status],
+          border: '2px solid #13161e',
+          transition: 'background-color 0.3s, box-shadow 0.3s',
+        }}
+      />
 
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
-              {/* Status dot */}
-              <span
-                className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ backgroundColor: color }}
-                title={STATUS_LABEL[agent.status]}
-              />
-              <span className={`font-semibold truncate ${isZeus ? 'text-sm text-yellow-300' : 'text-xs text-white'}`}>
-                {agent.nome}
-              </span>
-            </div>
-            {agent.funcao && (
-              <p className="text-xs text-gray-500 truncate mt-0.5">{agent.funcao}</p>
-            )}
-          </div>
-        </div>
-
-        {/* Divider */}
-        <div className="border-t border-gray-800 my-2" />
-
-        {/* Bottom row */}
-        <div className="flex items-center justify-between">
-          {/* Tarefa badge */}
-          <div className="flex items-center gap-1">
-            {tarefasCount > 0 ? (
-              <span className="flex items-center gap-1 text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 px-1.5 py-0.5 rounded-full">
-                <CheckCircle2 className="w-3 h-3" />
-                {tarefasCount}
-              </span>
-            ) : agent.status === 'erro' ? (
-              <span className="flex items-center gap-1 text-xs text-red-400">
-                <AlertCircle className="w-3 h-3" />
-                Erro
-              </span>
-            ) : (
-              <span className="text-xs text-gray-600 capitalize">{STATUS_LABEL[agent.status]}</span>
-            )}
-          </div>
-
-          {/* Chat button */}
-          <button
-            onClick={(e) => { e.stopPropagation(); onChat() }}
-            className="flex items-center gap-1 text-xs text-gray-500 hover:text-brand-400 hover:bg-brand-500/10 px-2 py-1 rounded-md transition-colors"
-          >
-            <MessageSquare className="w-3 h-3" />
-            chat
-          </button>
-        </div>
+      {/* Name label */}
+      <div
+        style={{
+          position: 'absolute',
+          top: '100%',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          marginTop: 6,
+          whiteSpace: 'nowrap',
+          textAlign: 'center',
+          pointerEvents: 'none',
+        }}
+      >
+        <p
+          style={{
+            color: agent.is_zeus ? '#f5c842' : '#e8eaf0',
+            fontSize: agent.is_zeus ? '0.8rem' : '0.72rem',
+            fontWeight: agent.is_zeus ? 700 : 500,
+          }}
+        >
+          {agent.name}
+        </p>
+        {agent.is_zeus && (
+          <p style={{ color: '#f5c842', fontSize: '0.65rem', opacity: 0.7 }}>Orquestrador</p>
+        )}
       </div>
     </div>
   )
