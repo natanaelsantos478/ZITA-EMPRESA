@@ -36,12 +36,13 @@ export default function Office3DView({ agents, onSelectAgent }: Props) {
 
     // Scene
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x23263a)
-    scene.fog = new THREE.Fog(0x1a1c22, 30, 80)
+    scene.background = new THREE.Color(0x1a1c22)
+    scene.fog = new THREE.Fog(0x1a1c22, 20, 60)
     sceneRef.current = scene
 
-    // Camera
+    // Camera (start inside the office, looking toward desks)
     const camera = new THREE.PerspectiveCamera(75, mount.clientWidth / mount.clientHeight, 0.1, 300)
+    camera.position.set(0, 1.7, 2)
     cameraRef.current = camera
 
     // Renderer
@@ -97,13 +98,16 @@ export default function Office3DView({ agents, onSelectAgent }: Props) {
 
     // Animation loop
     let lastTime = performance.now()
+    let elapsed  = 0
     const animate = () => {
       rafRef.current = requestAnimationFrame(animate)
       const now = performance.now()
       const dt  = Math.min((now - lastTime) / 1000, 0.05)
       lastTime  = now
+      elapsed  += dt
 
       controls.update(dt)
+      manager.update(dt, elapsed)
 
       // Hover detection each frame (crosshair raycast)
       raycaster.setFromCamera(center, camera)
@@ -111,6 +115,9 @@ export default function Office3DView({ agents, onSelectAgent }: Props) {
       setHovered(hoverId)
 
       renderer.render(scene, camera)
+
+      // Update HTML overlays after render (camera matrices are current)
+      manager.updateHTML(camera, renderer.domElement)
     }
     animate()
 
