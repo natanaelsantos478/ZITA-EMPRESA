@@ -1,68 +1,71 @@
 /**
- * AgentManager.ts — ported from ai-office/js/agents.js
- * Manages placing/updating agent avatars in the 3D scene using live Supabase data.
+ * AgentManager.ts — manages AgentAvatar instances using live Supabase data.
  */
 import * as THREE from 'three'
 import type { IaAgent } from '../../types'
-import { buildAvatar, type AvatarInstance } from './AgentAvatar'
+import { AgentAvatar } from './AgentAvatar'
 
 export class AgentManager {
-  private scene: THREE.Scene
-  private avatars: Map<string, AvatarInstance> = new Map()
+  private scene:   THREE.Scene
+  private avatars: Map<string, AgentAvatar> = new Map()
 
   constructor(scene: THREE.Scene) {
     this.scene = scene
   }
 
-  /** Sync scene avatars with the current agents list */
   sync(agents: IaAgent[]): void {
     const incomingIds = new Set(agents.map(a => a.id))
 
     // Remove stale avatars
-    this.avatars.forEach((inst, id) => {
+    this.avatars.forEach((avatar, id) => {
       if (!incomingIds.has(id)) {
-        this.scene.remove(inst.group)
+        avatar.dispose()
         this.avatars.delete(id)
       }
     })
 
-    // Add or update
+    // Add or replace changed agents
     agents.forEach((agent, index) => {
       if (this.avatars.has(agent.id)) {
-        // Update status badge color (child at index 17 = badge mesh)
-        // Simpler approach: remove and re-add
-        const old = this.avatars.get(agent.id)!
-        this.scene.remove(old.group)
+        const existing = this.avatars.get(agent.id)!
+        existing.dispose()
         this.avatars.delete(agent.id)
       }
-      const inst = buildAvatar(agent, index)
-      this.scene.add(inst.group)
-      this.avatars.set(agent.id, inst)
+      const avatar = new AgentAvatar(this.scene, agent, index)
+      this.avatars.set(agent.id, avatar)
     })
   }
 
-  /** Returns the agent id for the closest avatar to a ray, or null */
-  raycast(raycaster: THREE.Raycaster): string | null {
-    const groups: THREE.Object3D[] = []
-    this.avatars.forEach(inst => groups.push(inst.group))
+  /** Call every animation frame to advance avatar animations */
+  update(delta: number, elapsed: number): void {
+    this.avatars.forEach(a => a.update(delta, elapsed))
+  }
 
+  /** Call every frame after render() to reposition HTML name tags / speech bubbles */
+  updateHTML(camera: THREE.Camera, canvas: HTMLElement): void {
+    this.avatars.forEach(a => a.updateHTML(camera, canvas))
+  }
+
+  raycast(raycaster: THREE.Raycaster): string | null {
     const meshes: THREE.Mesh[] = []
-    groups.forEach(g => g.traverse(c => { if ((c as THREE.Mesh).isMesh) meshes.push(c as THREE.Mesh) }))
+    this.avatars.forEach(avatar => {
+      avatar.group.traverse(c => {
+        if ((c as THREE.Mesh).isMesh) meshes.push(c as THREE.Mesh)
+      })
+    })
 
     const hits = raycaster.intersectObjects(meshes)
     if (hits.length === 0) return null
 
     const hitObj = hits[0].object
-    for (const [id, inst] of this.avatars) {
-      let found = false
-      inst.group.traverse(c => { if (c === hitObj) found = true })
-      if (found) return id
+    for (const [id, avatar] of this.avatars) {
+      if (avatar.owns(hitObj)) return id
     }
     return null
   }
 
   dispose(): void {
-    this.avatars.forEach(inst => this.scene.remove(inst.group))
+    this.avatars.forEach(a => a.dispose())
     this.avatars.clear()
   }
 }
