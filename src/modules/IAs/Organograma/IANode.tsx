@@ -1,7 +1,7 @@
 import { MessageSquare, AlertCircle, CheckCircle2, Zap } from 'lucide-react'
 import type { IaAgent } from '../../../types'
 
-const STATUS_COLOR: Record<string, string> = {
+export const STATUS_COLOR: Record<string, string> = {
   online:    '#22c55e',
   ocupada:   '#eab308',
   aguardando:'#3b82f6',
@@ -25,9 +25,14 @@ interface Props {
   onSelect: () => void
   onChat: () => void
   tarefasCount: number
+  onHandleMouseDown?: (agentId: string, e: React.MouseEvent) => void
+  isConnectingTarget?: boolean
 }
 
-export default function IANode({ agent, selected, onSelect, onChat, tarefasCount }: Props) {
+export default function IANode({
+  agent, selected, onSelect, onChat, tarefasCount,
+  onHandleMouseDown, isConnectingTarget,
+}: Props) {
   const isZeus = agent.tipo === 'zeus'
   const color = STATUS_COLOR[agent.status] ?? '#6b7280'
   const isPulsing = agent.status === 'ocupada'
@@ -42,6 +47,7 @@ export default function IANode({ agent, selected, onSelect, onChat, tarefasCount
           : 'w-44 border border-gray-700 hover:border-gray-500'
         }
         ${selected ? 'ring-2 ring-brand-500 ring-offset-2 ring-offset-gray-950' : ''}
+        ${isConnectingTarget ? 'ring-2 ring-green-400 ring-offset-1 ring-offset-gray-950 scale-105' : ''}
       `}
       style={{ borderColor: selected ? undefined : isZeus ? undefined : agent.cor_hex + '66' }}
     >
@@ -53,10 +59,28 @@ export default function IANode({ agent, selected, onSelect, onChat, tarefasCount
         />
       )}
 
+      {/* Handle de entrada (esquerda) — não aparece no Zeus */}
+      {!isZeus && (
+        <div
+          data-handle-in={agent.id}
+          title="Conectar entrada"
+          className="absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-white z-10 hover:scale-125 transition-transform"
+          style={{ backgroundColor: isConnectingTarget ? '#22c55e' : '#374151', cursor: 'crosshair' }}
+        />
+      )}
+
+      {/* Handle de saída (direita) */}
+      <div
+        data-handle-out={agent.id}
+        title="Criar conexão"
+        onMouseDown={(e) => { e.stopPropagation(); onHandleMouseDown?.(agent.id, e) }}
+        className="absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-white z-10 hover:scale-125 transition-transform cursor-crosshair"
+        style={{ backgroundColor: agent.cor_hex || '#4e5eff' }}
+      />
+
       <div className="p-3">
         {/* Header row */}
         <div className="flex items-center gap-2 mb-2">
-          {/* Avatar / icon */}
           <div
             className={`flex-shrink-0 flex items-center justify-center rounded-lg text-white font-bold
               ${isZeus ? 'w-10 h-10 text-lg' : 'w-8 h-8 text-sm'}`}
@@ -73,7 +97,6 @@ export default function IANode({ agent, selected, onSelect, onChat, tarefasCount
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              {/* Status dot */}
               <span
                 className="w-2 h-2 rounded-full flex-shrink-0"
                 style={{ backgroundColor: color }}
@@ -89,12 +112,9 @@ export default function IANode({ agent, selected, onSelect, onChat, tarefasCount
           </div>
         </div>
 
-        {/* Divider */}
         <div className="border-t border-gray-800 my-2" />
 
-        {/* Bottom row */}
         <div className="flex items-center justify-between">
-          {/* Tarefa badge */}
           <div className="flex items-center gap-1">
             {tarefasCount > 0 ? (
               <span className="flex items-center gap-1 text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 px-1.5 py-0.5 rounded-full">
@@ -111,7 +131,6 @@ export default function IANode({ agent, selected, onSelect, onChat, tarefasCount
             )}
           </div>
 
-          {/* Chat button */}
           <button
             onClick={(e) => { e.stopPropagation(); onChat() }}
             className="flex items-center gap-1 text-xs text-gray-500 hover:text-brand-400 hover:bg-brand-500/10 px-2 py-1 rounded-md transition-colors"
