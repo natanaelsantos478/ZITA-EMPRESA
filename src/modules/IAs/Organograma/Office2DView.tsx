@@ -46,14 +46,10 @@ interface Theme {
 }
 
 const THEMES: Record<ThemeName, Theme> = {
-  moderno:  { f1:'#1a1e2a', f2:'#1d2232', grid:'#141822', wall:'#1e3a5f', wallHL:'#2b5080', chair:'#18183a', monitor:'#111122', glow:'#3a80ff', label:'Moderno',  emoji:'🏢',
-              desk:'#2a3a5a', deskHL:'#3a5080' },
-  retro:    { f1:'#3d2d0f', f2:'#352809', grid:'#1a1200', wall:'#4a2e10', wallHL:'#7c5528', chair:'#1a1a3a', monitor:'#1a1000', glow:'#e8a020', label:'Retrô',    emoji:'🪵',
-              desk:'#7c5c2a', deskHL:'#a07840' },
-  scifi:    { f1:'#050a14', f2:'#080f1e', grid:'#0d1525', wall:'#0a1a30', wallHL:'#1a4070', chair:'#0a0a25', monitor:'#050510', glow:'#00e5ff', label:'Sci-Fi',   emoji:'🚀',
-              desk:'#0d2840', deskHL:'#1a5080' },
-  natureza: { f1:'#1a2a15', f2:'#162210', grid:'#0f1a0a', wall:'#163520', wallHL:'#2a5530', chair:'#1a2a10', monitor:'#0d1a08', glow:'#22c55e', label:'Natureza', emoji:'🌿',
-              desk:'#2d4a20', deskHL:'#4a7030' },
+  moderno:  { f1:'#1a1e2a', f2:'#1d2232', grid:'#141822', wall:'#1e3a5f', wallHL:'#2b5080', desk:'#4a3820', deskHL:'#6b5530', chair:'#18183a', monitor:'#111122', glow:'#3a80ff', label:'Moderno',  emoji:'🏢' },
+  retro:    { f1:'#3d2d0f', f2:'#352809', grid:'#1a1200', wall:'#1e3a5f', wallHL:'#2b5080', desk:'#7c5c2a', deskHL:'#a07840', chair:'#1a1a3a', monitor:'#111122', glow:'#5078ff', label:'Retrô',    emoji:'🪵' },
+  scifi:    { f1:'#050a14', f2:'#080f1e', grid:'#0d1525', wall:'#0a1a30', wallHL:'#1a4070', desk:'#0d2840', deskHL:'#1a5080', chair:'#0a0a25', monitor:'#050510', glow:'#00e5ff', label:'Sci-Fi',   emoji:'🚀' },
+  natureza: { f1:'#1a2a15', f2:'#162210', grid:'#0f1a0a', wall:'#163520', wallHL:'#2a5530', desk:'#2d4a20', deskHL:'#4a7030', chair:'#1a2a10', monitor:'#0d1a08', glow:'#22c55e', label:'Natureza', emoji:'🌿' },
 }
 
 // ─── Speech bubble ─────────────────────────────────────────────────────────────
