@@ -104,167 +104,331 @@ const DEFAULT_SALAS: SalaConfig[] = [
 
 // ─── Draw helpers ─────────────────────────────────────────────────────────────
 function drawRoom(ctx: CanvasRenderingContext2D, sala: SalaConfig, ox: number) {
-  const t = THEMES[sala.theme]
-  const W = sala.cols * TILE, H = ROWS * TILE
-  // Floor tiles
+  const t = THEMES[sala.theme], W = sala.cols * TILE, H = ROWS * TILE
+  const theme = sala.theme
+
+  // ── Floor tiles with pixel-art sub-patterns per theme ──────────────────────
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < sala.cols; c++) {
-      ctx.fillStyle = (r + c) % 2 === 0 ? t.f1 : t.f2
-      ctx.fillRect(ox + c * TILE + 1, r * TILE + 1, TILE - 2, TILE - 2)
+      const tx = ox + c * TILE, ty = r * TILE
+      const alt = (r + c) % 2 === 0
+
+      if (theme === 'retro') {
+        // Wood planks: warm horizontal strips
+        ctx.fillStyle = alt ? '#c89050' : '#b87840'
+        ctx.fillRect(tx, ty, TILE, TILE)
+        ctx.fillStyle = '#7a4820'
+        ctx.fillRect(tx, ty + TILE - 2, TILE, 2) // plank gap
+        ctx.fillStyle = 'rgba(0,0,0,0.1)'
+        ctx.fillRect(tx, ty, 1, TILE) // left grain
+        ctx.fillStyle = 'rgba(255,200,100,0.12)'
+        ctx.fillRect(tx + 3, ty + 6, TILE - 6, 2) // highlight streak
+
+      } else if (theme === 'scifi') {
+        // Metal grating: dark grid
+        ctx.fillStyle = alt ? '#0d1520' : '#0a1018'
+        ctx.fillRect(tx, ty, TILE, TILE)
+        ctx.strokeStyle = '#1e2d40'; ctx.lineWidth = 1
+        for (let gx = 0; gx <= TILE; gx += 8) {
+          ctx.beginPath(); ctx.moveTo(tx + gx, ty); ctx.lineTo(tx + gx, ty + TILE); ctx.stroke()
+        }
+        for (let gy = 0; gy <= TILE; gy += 8) {
+          ctx.beginPath(); ctx.moveTo(tx, ty + gy); ctx.lineTo(tx + TILE, ty + gy); ctx.stroke()
+        }
+        // Glow dots at intersections
+        if ((r + c) % 4 === 0) {
+          ctx.fillStyle = '#00e5ff22'
+          ctx.fillRect(tx + TILE / 2 - 2, ty + TILE / 2 - 2, 4, 4)
+        }
+
+      } else if (theme === 'natureza') {
+        // Grass tiles with flowers
+        ctx.fillStyle = alt ? '#3d7a1e' : '#347018'
+        ctx.fillRect(tx, ty, TILE, TILE)
+        const seed = r * 100 + c
+        if (seed % 5 === 0) {
+          ctx.fillStyle = '#fff07a'; ctx.fillRect(tx + 8, ty + 10, 3, 3)
+          ctx.fillStyle = '#ffcc00'; ctx.fillRect(tx + 9, ty + 11, 1, 1)
+        } else if (seed % 3 === 0) {
+          ctx.fillStyle = '#58c030'
+          ctx.fillRect(tx + 18, ty + 20, 3, 6); ctx.fillRect(tx + 22, ty + 18, 3, 6)
+        }
+        ctx.fillStyle = 'rgba(0,0,0,0.06)'
+        ctx.fillRect(tx + TILE - 2, ty, 2, TILE) // shadow right
+        ctx.fillRect(tx, ty + TILE - 2, TILE, 2) // shadow bottom
+
+      } else {
+        // Moderno: dark stone / carpet tiles
+        ctx.fillStyle = alt ? '#1a1e2a' : '#1d2232'
+        ctx.fillRect(tx, ty, TILE, TILE)
+        ctx.fillStyle = 'rgba(80,100,160,0.18)'
+        ctx.fillRect(tx + TILE / 2 - 1, ty + 4, 2, TILE - 8)
+        ctx.fillRect(tx + 4, ty + TILE / 2 - 1, TILE - 8, 2)
+        ctx.fillStyle = 'rgba(255,255,255,0.04)'
+        ctx.fillRect(tx + 2, ty + 2, TILE - 4, 2) // subtle highlight
+      }
     }
   }
-  // Grid
-  ctx.strokeStyle = t.grid; ctx.lineWidth = 1
-  for (let c = 0; c <= sala.cols; c++) {
-    ctx.beginPath(); ctx.moveTo(ox + c*TILE, 0); ctx.lineTo(ox + c*TILE, H); ctx.stroke()
+
+  // ── Walls with pixel-art depth ─────────────────────────────────────────────
+  const WC  = t.wall,  WH = t.wallHL
+  // Top wall — shows "front face" below and "top face" above
+  ctx.fillStyle = WC
+  ctx.fillRect(ox, 0, W, WALL_T + 6)
+  ctx.fillStyle = WH
+  ctx.fillRect(ox, 0, W, WALL_T - 4)    // lighter top face
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'
+  ctx.fillRect(ox, WALL_T + 2, W, 4)    // dark shadow bottom of wall
+
+  // Bottom wall
+  ctx.fillStyle = WC; ctx.fillRect(ox, H - WALL_T, W, WALL_T)
+  ctx.fillStyle = WH; ctx.fillRect(ox, H - WALL_T, W, 4)
+  ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(ox, H - 2, W, 2)
+
+  // Side walls
+  ctx.fillStyle = WC
+  ctx.fillRect(ox, 0, WALL_T, H); ctx.fillRect(ox + W - WALL_T, 0, WALL_T, H)
+  ctx.fillStyle = WH
+  ctx.fillRect(ox, 0, 4, H); ctx.fillRect(ox + W - 4, 0, 4, H)
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'
+  ctx.fillRect(ox, 0, 2, H); ctx.fillRect(ox + W - 2, 0, 2, H)
+
+  // Brick / pattern on retro walls
+  if (theme === 'retro' || theme === 'moderno') {
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'
+    for (let bx = 0; bx < W; bx += 24) {
+      ctx.fillRect(ox + bx, WALL_T - 6, 1, 6)
+    }
+    for (let bx = 12; bx < W; bx += 24) {
+      ctx.fillRect(ox + bx, 0, 1, WALL_T - 6)
+    }
   }
-  for (let r = 0; r <= ROWS; r++) {
-    ctx.beginPath(); ctx.moveTo(ox, r*TILE); ctx.lineTo(ox+W, r*TILE); ctx.stroke()
+  if (theme === 'scifi') {
+    // Cyan trim lines on scifi walls
+    ctx.strokeStyle = t.glow + '55'; ctx.lineWidth = 1
+    ctx.beginPath(); ctx.moveTo(ox + WALL_T, WALL_T); ctx.lineTo(ox + W - WALL_T, WALL_T); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(ox + WALL_T, H - WALL_T); ctx.lineTo(ox + W - WALL_T, H - WALL_T); ctx.stroke()
   }
-  // Walls
-  ctx.fillStyle = t.wall
-  ctx.fillRect(ox,         0,       W,     WALL_T)
-  ctx.fillRect(ox,         H-WALL_T, W,    WALL_T)
-  ctx.fillRect(ox,         0,       WALL_T, H)
-  ctx.fillRect(ox+W-WALL_T, 0,      WALL_T, H)
-  ctx.fillStyle = t.wallHL
-  ctx.fillRect(ox, 0, W, 3)
-  ctx.fillRect(ox, 0, 3, H)
+
   // Room name
-  ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'
-  ctx.fillStyle = 'rgba(255,255,255,0.12)'
-  ctx.fillText(sala.nome, ox + W/2, H - 18)
+  ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'
+  ctx.fillStyle = 'rgba(255,255,255,0.15)'
+  ctx.fillText(sala.nome.toUpperCase(), ox + W / 2, H - 20)
 }
 
 function drawDesk(ctx: CanvasRenderingContext2D, t: Theme, ox: number, col: number, row: number) {
   const px = ox + col * TILE, py = row * TILE
-  const dw = TILE * 2.6, dh = TILE * 1.2, cx = px + dw/2
-  // Shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.35)'
-  ctx.beginPath(); ctx.roundRect(px+4, py+4, dw, dh, 5); ctx.fill()
-  // Surface
+  const dw = Math.round(TILE * 2.5), dh = Math.round(TILE * 1.15)
+  const cx = px + dw / 2
+
+  // Pixel shadow (hard offset, no blur)
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'
+  ctx.fillRect(px + 4, py + 4, dw, dh)
+
+  // Desk surface
   ctx.fillStyle = t.desk
-  ctx.beginPath(); ctx.roundRect(px, py, dw, dh, 6); ctx.fill()
-  ctx.strokeStyle = t.deskHL; ctx.lineWidth = 2
-  ctx.beginPath(); ctx.roundRect(px+2, py+2, dw-4, dh-4, 4); ctx.stroke()
-  // Monitor
-  const mw = 30, mh = 20, mx = cx - mw/2, my = py + 5
-  ctx.fillStyle = t.monitor; ctx.fillRect(mx, my, mw, mh)
-  ctx.fillStyle = t.glow + '55'; ctx.fillRect(mx+2, my+2, mw-4, mh-4)
-  // Glow strip at bottom of monitor
-  ctx.fillStyle = t.glow + 'aa'; ctx.fillRect(mx+2, my+mh-3, mw-4, 2)
-  // Stand
-  ctx.fillStyle = t.monitor; ctx.fillRect(cx-3, my+mh, 6, 5); ctx.fillRect(cx-8, my+mh+4, 16, 2)
-  // Chair
-  const cy2 = py + dh + 7
+  ctx.fillRect(px, py, dw, dh)
+  // Pixel highlight: lighter top/left edges (3D effect)
+  ctx.fillStyle = t.deskHL
+  ctx.fillRect(px, py, dw, 4)
+  ctx.fillRect(px, py, 4, dh)
+  // Dark outline: right/bottom edges
+  ctx.fillStyle = 'rgba(0,0,0,0.65)'
+  ctx.fillRect(px + dw - 3, py + 4, 3, dh - 4)
+  ctx.fillRect(px + 4, py + dh - 3, dw - 7, 3)
+
+  // Monitor (top-down: bright rectangle)
+  const mw = 30, mh = 18, mx = cx - mw / 2, my = py + 5
+  ctx.fillStyle = t.monitor
+  ctx.fillRect(mx, my, mw, mh)
+  ctx.fillStyle = t.glow + '66'
+  ctx.fillRect(mx + 2, my + 2, mw - 4, mh - 4)
+  ctx.fillStyle = t.glow + 'cc'
+  ctx.fillRect(mx + 2, my + mh - 3, mw - 4, 2) // glow strip
+  // Pixel outline on monitor
+  ctx.fillStyle = '#000'
+  ctx.fillRect(mx, my, mw, 2); ctx.fillRect(mx, my, 2, mh)
+  ctx.fillRect(mx + mw - 2, my, 2, mh); ctx.fillRect(mx, my + mh - 2, mw, 2)
+  // Monitor stand
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'
+  ctx.fillRect(cx - 3, my + mh, 6, 5)
+  ctx.fillRect(cx - 9, my + mh + 4, 18, 3)
+
+  // Chair (top-down square view)
+  const chY = py + dh + 6
   ctx.fillStyle = t.chair
-  ctx.beginPath(); ctx.ellipse(cx, cy2+11, 17, 12, 0, 0, Math.PI*2); ctx.fill()
-  ctx.fillRect(cx-14, cy2-1, 28, 7)
-  ctx.fillRect(cx-11, cy2-11, 22, 11)
+  ctx.fillRect(cx - 13, chY, 26, 18)
+  ctx.fillStyle = t.deskHL + '66'
+  ctx.fillRect(cx - 13, chY, 26, 4) // seat highlight
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'
+  ctx.fillRect(cx - 13, chY + 16, 26, 2) // shadow
+  ctx.fillRect(cx - 13, chY, 3, 18)      // left leg
+  ctx.fillRect(cx + 10, chY, 3, 18)      // right leg
 }
 
 function drawAgent(
   ctx: CanvasRenderingContext2D, agent: IaAgent,
   anim: AgentAnim, pulse: number, hovered: boolean, selected: boolean
 ): { id: string; cx: number; cy: number; r: number } {
-  const r = 14 + pulse * 1.5
   const bob =
-    anim.state === 'working' ? Math.sin(anim.workTimer * 4) * 2 :
-    anim.state === 'idle'    ? Math.sin(anim.idlePhase) * 1.5 : 0
-  const cx = anim.x, cy = anim.y + bob
+    anim.state === 'working' ? Math.sin(anim.workTimer * 4) * 1.5 :
+    anim.state === 'idle'    ? Math.sin(anim.idlePhase)    * 1.2 : 0
+  const cx = anim.x, cy0 = anim.y, cy = cy0 + bob
 
-  // Selection / hover rings
+  // Sprite dimensions (pixel-art proportions)
+  const SW = 14, SH = 22            // sprite width / height
+  const SX = Math.round(cx - SW/2)  // top-left x
+  const SY = Math.round(cy - SH)    // top-left y (feet at cy)
+  const color = agent.cor_hex || '#4e5eff'
+
+  // Selection: pixel-corner brackets
   if (selected) {
-    ctx.strokeStyle = '#7487ff'; ctx.lineWidth = 3
-    ctx.beginPath(); ctx.arc(cx, cy, r+7, 0, Math.PI*2); ctx.stroke()
-    ctx.strokeStyle = 'rgba(116,135,255,0.3)'; ctx.lineWidth = 8
-    ctx.beginPath(); ctx.arc(cx, cy, r+12, 0, Math.PI*2); ctx.stroke()
+    ctx.fillStyle = '#7487ff'
+    const [bx, by, bw, bh] = [SX-5, SY-5, SW+10, SH+10]
+    const bz = 6
+    ctx.fillRect(bx, by, bz, 2); ctx.fillRect(bx, by, 2, bz)
+    ctx.fillRect(bx+bw-bz, by, bz, 2); ctx.fillRect(bx+bw-2, by, 2, bz)
+    ctx.fillRect(bx, by+bh-2, bz, 2); ctx.fillRect(bx, by+bh-bz, 2, bz)
+    ctx.fillRect(bx+bw-bz, by+bh-2, bz, 2); ctx.fillRect(bx+bw-2, by+bh-bz, 2, bz)
+    // Pulse box for ocupada
+    if (agent.status === 'ocupada') {
+      ctx.fillStyle = `rgba(234,179,8,${0.2+pulse*0.5})`
+      const pOff = Math.round(3 + pulse * 5)
+      ctx.fillRect(SX-pOff, SY-pOff, SW+pOff*2, 2)
+      ctx.fillRect(SX-pOff, SY+SH+pOff-2, SW+pOff*2, 2)
+      ctx.fillRect(SX-pOff, SY-pOff, 2, SH+pOff*2)
+      ctx.fillRect(SX+SW+pOff-2, SY-pOff, 2, SH+pOff*2)
+    }
   }
   if (hovered && !selected) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 2
-    ctx.beginPath(); ctx.arc(cx, cy, r+5, 0, Math.PI*2); ctx.stroke()
+    ctx.fillStyle = 'rgba(255,255,255,0.22)'
+    ctx.fillRect(SX-3, SY-3, SW+6, 2); ctx.fillRect(SX-3, SY-3, 2, SH+6)
+    ctx.fillRect(SX+SW+1, SY-3, 2, SH+6); ctx.fillRect(SX-3, SY+SH+1, SW+6, 2)
   }
 
-  // Walking legs
+  // Shadow under feet (flat, no blur)
+  ctx.fillStyle = 'rgba(0,0,0,0.35)'
+  ctx.fillRect(SX + 1, cy0 + 1, SW - 2, 4)
+
+  // ── Legs (only when walking) ─────────────────────────────────────────────────
   if (anim.state === 'walking') {
-    const swing = Math.sin(anim.walkPhase * 8) * 9
-    ctx.strokeStyle = agent.cor_hex || '#4e5eff'; ctx.lineWidth = 4; ctx.lineCap = 'round'
-    ctx.beginPath(); ctx.moveTo(cx-4, cy+r*0.7); ctx.lineTo(cx-4+swing, cy+r*1.5); ctx.stroke()
-    ctx.beginPath(); ctx.moveTo(cx+4, cy+r*0.7); ctx.lineTo(cx+4-swing, cy+r*1.5); ctx.stroke()
+    const frame = Math.sin(anim.walkPhase * 8) > 0
+    ctx.fillStyle = color
+    ctx.fillRect(SX + 1, SY + SH - 8, 5, 9)       // left leg
+    ctx.fillRect(SX + SW - 6, SY + SH - 8 + (frame ? -3 : 3), 5, 9) // right leg alternating
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'
+    ctx.fillRect(SX + 1, SY + SH + 1, 5, 1)
+    ctx.fillRect(SX + SW - 6, SY + SH + (frame ? -2 : 4), 5, 1)
   }
 
-  // Shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.3)'
-  ctx.beginPath(); ctx.ellipse(cx+2, cy+4, r, r*0.6, 0, 0, Math.PI*2); ctx.fill()
-  // Body circle
-  ctx.fillStyle = agent.cor_hex || '#4e5eff'
-  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill()
-  ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1.5
-  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke()
-  // Face
-  ctx.fillStyle = '#ffcc99'
-  ctx.beginPath(); ctx.arc(cx, cy-r*0.15, r*0.55, 0, Math.PI*2); ctx.fill()
-  ctx.fillStyle = '#222'
-  ctx.beginPath(); ctx.arc(cx-4, cy-r*0.2, 2.5, 0, Math.PI*2); ctx.fill()
-  ctx.beginPath(); ctx.arc(cx+4, cy-r*0.2, 2.5, 0, Math.PI*2); ctx.fill()
-  // Zeus crown
+  // ── Body (torso) ─────────────────────────────────────────────────────────────
+  ctx.fillStyle = color
+  ctx.fillRect(SX, SY + 9, SW, 13)
+  // Pixel highlight left edge
+  ctx.fillStyle = 'rgba(255,255,255,0.3)'
+  ctx.fillRect(SX, SY + 9, 2, 13)
+  ctx.fillRect(SX, SY + 9, SW, 2)
+  // Pixel shadow right/bottom edge
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'
+  ctx.fillRect(SX + SW - 2, SY + 11, 2, 11)
+  ctx.fillRect(SX + 2, SY + 20, SW - 4, 2)
+
+  // ── Head ─────────────────────────────────────────────────────────────────────
+  ctx.fillStyle = '#f0c87a'          // skin tone
+  ctx.fillRect(SX + 2, SY + 1, SW - 4, 9)
+  // Pixel hair / outfit top (colored)
+  ctx.fillStyle = color
+  ctx.fillRect(SX + 2, SY + 1, SW - 4, 3)
+  // Face outline
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'
+  ctx.fillRect(SX + 2, SY + 1, 1, 9)        // left
+  ctx.fillRect(SX + SW - 3, SY + 1, 1, 9)   // right
+  ctx.fillRect(SX + 2, SY + 1, SW - 4, 1)   // top
+  ctx.fillRect(SX + 2, SY + 9, SW - 4, 1)   // bottom (chin)
+  // Eyes (2 dark pixels)
+  ctx.fillStyle = '#1a0800'
+  ctx.fillRect(SX + 4, SY + 5, 2, 2)
+  ctx.fillRect(SX + SW - 6, SY + 5, 2, 2)
+
+  // ── Zeus pixel crown ──────────────────────────────────────────────────────────
   if (agent.tipo === 'zeus') {
     ctx.fillStyle = '#f59e0b'
-    ctx.beginPath()
-    ctx.moveTo(cx-10, cy-r-2); ctx.lineTo(cx-7, cy-r-10)
-    ctx.lineTo(cx, cy-r-5); ctx.lineTo(cx+7, cy-r-10)
-    ctx.lineTo(cx+10, cy-r-2); ctx.closePath(); ctx.fill()
+    ctx.fillRect(SX + 2, SY - 1, SW - 4, 3)   // crown base
+    ctx.fillRect(SX + 2, SY - 4, 3, 3)          // left prong
+    ctx.fillRect(SX + SW/2 - 1, SY - 6, 3, 5)  // center prong
+    ctx.fillRect(SX + SW - 5, SY - 4, 3, 3)     // right prong
+    ctx.fillStyle = '#fde68a'
+    ctx.fillRect(SX + 3, SY - 3, 1, 2)
+    ctx.fillRect(SX + SW/2, SY - 5, 1, 4)
+    ctx.fillRect(SX + SW - 4, SY - 3, 1, 2)
   }
-  // Working: keyboard glow
+
+  // ── Working: pixel keyboard flicker ──────────────────────────────────────────
   if (anim.state === 'working') {
-    const ka = 0.3 + Math.sin(anim.workTimer * 6) * 0.3
-    ctx.fillStyle = `rgba(100,160,255,${ka})`
-    ctx.fillRect(cx-r*0.6, cy+r*0.5, r*1.2, r*0.25)
+    const ka = 0.4 + Math.sin(anim.workTimer * 6) * 0.35
+    ctx.fillStyle = `rgba(100,180,255,${ka})`
+    for (let ki = 0; ki < 3; ki++) ctx.fillRect(cx - 6 + ki * 5, cy0 + 3, 4, 2)
   }
-  // Status dot
+
+  // ── Status indicator (pixel square top-right of sprite) ──────────────────────
   const dotC = STATUS_COLOR[agent.status] ?? '#6b7280'
   ctx.fillStyle = dotC
-  ctx.beginPath(); ctx.arc(cx+r*0.65, cy+r*0.65, 5, 0, Math.PI*2); ctx.fill()
-  ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1.5; ctx.stroke()
-  if (agent.status === 'ocupada') {
-    ctx.strokeStyle = `rgba(234,179,8,${0.4+pulse*0.4})`; ctx.lineWidth = 2
-    ctx.beginPath(); ctx.arc(cx, cy, r+4+pulse*4, 0, Math.PI*2); ctx.stroke()
-  }
-  // Label
-  const fs = selected || hovered ? 12 : 10
-  ctx.font = `${selected ? 'bold' : 'normal'} ${fs}px 'Segoe UI',sans-serif`
-  const lbl = agent.nome.length > 10 ? agent.nome.slice(0,9)+'…' : agent.nome
+  ctx.fillRect(SX + SW + 2, SY, 5, 5)
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'
+  ctx.fillRect(SX + SW + 2, SY, 5, 1); ctx.fillRect(SX + SW + 2, SY, 1, 5)
+  ctx.fillRect(SX + SW + 6, SY, 1, 5); ctx.fillRect(SX + SW + 2, SY + 4, 5, 1)
+
+  // ── Name tag (pixel-font style) ───────────────────────────────────────────────
+  const lbl = agent.nome.length > 10 ? agent.nome.slice(0, 9) + '…' : agent.nome
+  ctx.font = `${selected ? 'bold ' : ''}9px monospace`
   const tw = ctx.measureText(lbl).width
-  ctx.fillStyle = selected ? 'rgba(74,87,255,0.85)' : 'rgba(0,0,0,0.65)'
-  const lx = cx-tw/2-4, ly = cy+r+6
-  ctx.beginPath(); ctx.roundRect(lx, ly, tw+8, fs+6, 3); ctx.fill()
-  ctx.fillStyle = selected ? '#fff' : '#e5e7eb'
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-  ctx.fillText(lbl, cx, ly+(fs+6)/2)
-  // Speech bubble
+  const lx = cx - tw/2 - 3, ly = cy0 + 4
+  ctx.fillStyle = selected ? 'rgba(50,60,200,0.9)' : 'rgba(0,0,0,0.72)'
+  ctx.fillRect(lx, ly, tw + 6, 11)
+  ctx.fillStyle = selected ? '#fff' : '#dde0e8'
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top'
+  ctx.fillText(lbl, lx + 3, ly + 1)
+
+  // ── Speech bubble ─────────────────────────────────────────────────────────────
   if (anim.bubble && Date.now() < anim.bubble.expiresAt) {
-    drawBubble(ctx, anim.bubble.text, cx, cy - r)
+    drawBubble(ctx, anim.bubble.text, cx, SY - 4)
   }
-  return { id: agent.id, cx, cy, r: r+6 }
+
+  return { id: agent.id, cx, cy: cy0, r: SW/2 + 6 }
 }
 
 function drawCorridor(ctx: CanvasRenderingContext2D, ox: number) {
   const H = ROWS * TILE
-  ctx.fillStyle = '#0d1018'
-  ctx.fillRect(ox, 0, CORRIDOR_W, H)
-  // Floor guide arrows
-  ctx.fillStyle = 'rgba(255,255,255,0.05)'
-  for (let y = TILE; y < H; y += TILE*2) {
-    ctx.beginPath()
-    ctx.moveTo(ox+CORRIDOR_W/2, y)
-    ctx.lineTo(ox+CORRIDOR_W/2-8, y+14)
-    ctx.lineTo(ox+CORRIDOR_W/2+8, y+14)
-    ctx.closePath(); ctx.fill()
+  // Stone floor tiles (pixel art alternating blocks)
+  for (let ry = 0; ry < H; ry += TILE) {
+    for (let rx = 0; rx < CORRIDOR_W; rx += TILE) {
+      const alt = ((ry / TILE) + (rx / TILE)) % 2 === 0
+      ctx.fillStyle = alt ? '#181c24' : '#13171f'
+      ctx.fillRect(ox + rx, ry, TILE, TILE)
+      ctx.fillStyle = 'rgba(0,0,0,0.45)'
+      ctx.fillRect(ox + rx, ry + TILE - 2, TILE, 2)   // bottom seam
+      ctx.fillRect(ox + rx + TILE - 2, ry, 2, TILE)   // right seam
+    }
   }
-  // Side lines
-  ctx.strokeStyle = 'rgba(60,80,120,0.3)'; ctx.lineWidth = 1
-  ctx.beginPath(); ctx.moveTo(ox+4, 0); ctx.lineTo(ox+4, H); ctx.stroke()
-  ctx.beginPath(); ctx.moveTo(ox+CORRIDOR_W-4, 0); ctx.lineTo(ox+CORRIDOR_W-4, H); ctx.stroke()
+  // Darker edges (wall strip each side)
+  ctx.fillStyle = '#0c0f16'
+  ctx.fillRect(ox, 0, 8, H); ctx.fillRect(ox + CORRIDOR_W - 8, 0, 8, H)
+  // Pixel wall outline
+  ctx.fillStyle = '#000'
+  ctx.fillRect(ox, 0, 2, H); ctx.fillRect(ox + CORRIDOR_W - 2, 0, 2, H)
+  // Torches on walls (every 3 tiles)
+  for (let ty2 = TILE * 2; ty2 < H - TILE; ty2 += TILE * 3) {
+    // Left torch
+    ctx.fillStyle = '#5a3000'; ctx.fillRect(ox + 4, ty2 + 4, 5, 8)
+    ctx.fillStyle = '#ff9900'; ctx.fillRect(ox + 4, ty2,     5, 5)
+    ctx.fillStyle = '#ffdd00'; ctx.fillRect(ox + 5, ty2 + 1, 3, 3)
+    ctx.fillStyle = '#fff8';   ctx.fillRect(ox + 6, ty2 + 1, 1, 2)
+    // Right torch
+    ctx.fillStyle = '#5a3000'; ctx.fillRect(ox + CORRIDOR_W - 9, ty2 + 4, 5, 8)
+    ctx.fillStyle = '#ff9900'; ctx.fillRect(ox + CORRIDOR_W - 9, ty2,     5, 5)
+    ctx.fillStyle = '#ffdd00'; ctx.fillRect(ox + CORRIDOR_W - 8, ty2 + 1, 3, 3)
+    ctx.fillStyle = '#fff8';   ctx.fillRect(ox + CORRIDOR_W - 7, ty2 + 1, 1, 2)
+  }
 }
 
 // ─── Room offset calculation ──────────────────────────────────────────────────
