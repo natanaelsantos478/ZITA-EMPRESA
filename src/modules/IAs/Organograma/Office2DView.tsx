@@ -647,7 +647,7 @@ export default function Office2DView({ agents, onSelectAgent, selectedId }: Prop
       // Agents
       const newBounds: typeof boundsRef.current=[]
       curSalas.forEach((_,i)=>{
-        agentsForSala(i).forEach((agent,ai)=>{
+        agentsForSala(i).forEach((agent)=>{
           const anim=animsRef.current.get(agent.id)
           if(!anim) return
           const b=drawAgent(ctx,curP,curLayout,agent,anim,pulse,
