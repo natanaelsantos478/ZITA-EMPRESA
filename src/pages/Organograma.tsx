@@ -6,7 +6,7 @@ import { useRealtime } from '../hooks/useRealtime'
 import { supabase } from '../lib/supabase'
 import type { IaAgent, IaTarefa } from '../types'
 import CanvasView from '../modules/IAs/Organograma/CanvasView'
-import Office2DView from '../modules/IAs/Organograma/Office2DView'
+import EscritorioView from '../modules/IAs/Escritorio/EscritorioView'
 import Office3DView from '../modules/IAs/Organograma/Office3DView'
 import ControleIAPanel from '../modules/IAs/ControleIA/ControleIAPanel'
 import ChatIA from '../modules/IAs/Chat/ChatIA'
@@ -98,7 +98,7 @@ export default function Organograma() {
         <div className="flex-1 min-h-0 overflow-hidden">
           {view === 'canvas' && <CanvasView />}
           {view === '2d' && (
-            <Office2DView
+            <EscritorioView
               agents={agents}
               tarefasCounts={tarefasCounts}
               onSelectAgent={handleSelect}
