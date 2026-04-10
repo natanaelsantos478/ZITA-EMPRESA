@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback } from 'react'
 import type { RefObject } from 'react'
-import type { IaAgent } from '../../types'
+import type { IaAgent } from '../../../types'
 import type { ThemeName, FurnitureItem, FurnitureType, Camera } from './types'
 import { TILE, PIXEL, GRID_W, GRID_H } from './constants'
 import { THEMES } from './themes'

@@ -1,5 +1,5 @@
 import type { Theme, ThemeName } from '../types'
-import { TILE, PIXEL, GRID_W, GRID_H } from '../constants'
+import { TILE, PIXEL } from '../constants'
 
 const P = PIXEL
 

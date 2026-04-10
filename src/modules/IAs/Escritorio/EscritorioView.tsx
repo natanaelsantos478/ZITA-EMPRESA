@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
-import { useAuth } from '../../contexts/AuthContext'
-import type { IaAgent } from '../../types'
+import { useAuth } from '../../../contexts/AuthContext'
+import type { IaAgent } from '../../../types'
 import type { ThemeName, FurnitureItem, FurnitureType } from './types'
 import { GRID_W, GRID_H } from './constants'
 import { useEscritorioEngine } from './useEscritorioEngine'
