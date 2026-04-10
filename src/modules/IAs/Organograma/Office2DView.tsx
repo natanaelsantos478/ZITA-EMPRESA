@@ -2,10 +2,26 @@
  * Office2DView.tsx — Zelda-style top-down 2D office
  * Enhanced: multiple rooms, 4 themes, desk placement edit mode, room management
  */
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Grid3X3 } from 'lucide-react'
-import type { IaAgent } from '../../../types'
+import type { IaAgent, IaMensagem } from '../../../types'
 import { useAuth } from '../../../contexts/AuthContext'
+import { useRealtime } from '../../../hooks/useRealtime'
+
+// ─── Animation state per agent ────────────────────────────────────────────────
+interface AgentAnim {
+  state: 'idle' | 'working' | 'walking' | 'talking'
+  x: number; y: number
+  homeX: number; homeY: number
+  fromX: number; fromY: number
+  targetX: number; targetY: number
+  walkProgress: number
+  walkPhase: number
+  workTimer: number
+  idlePhase: number
+  bubble?: { text: string; expiresAt: number }
+  afterWalk?: 'goHome' | 'talk'
+}
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const TILE       = 48
@@ -30,10 +46,40 @@ interface Theme {
 }
 
 const THEMES: Record<ThemeName, Theme> = {
-  moderno:  { f1:'#1a1e2a', f2:'#1d2232', grid:'#141822', wall:'#1e3a5f', wallHL:'#2b5080', desk:'#4a3820', deskHL:'#6b5530', chair:'#18183a', monitor:'#111122', glow:'#3a80ff', label:'Moderno',  emoji:'🏢' },
-  retro:    { f1:'#3d2d0f', f2:'#352809', grid:'#1a1200', wall:'#1e3a5f', wallHL:'#2b5080', desk:'#7c5c2a', deskHL:'#a07840', chair:'#1a1a3a', monitor:'#111122', glow:'#5078ff', label:'Retrô',    emoji:'🪵' },
-  scifi:    { f1:'#050a14', f2:'#080f1e', grid:'#0d1525', wall:'#0a1a30', wallHL:'#1a4070', desk:'#0d2840', deskHL:'#1a5080', chair:'#0a0a25', monitor:'#050510', glow:'#00e5ff', label:'Sci-Fi',   emoji:'🚀' },
-  natureza: { f1:'#1a2a15', f2:'#162210', grid:'#0f1a0a', wall:'#163520', wallHL:'#2a5530', desk:'#2d4a20', deskHL:'#4a7030', chair:'#1a2a10', monitor:'#0d1a08', glow:'#22c55e', label:'Natureza', emoji:'🌿' },
+  moderno:  { f1:'#1a1e2a', f2:'#1d2232', grid:'#141822', wall:'#1e3a5f', wallHL:'#2b5080', chair:'#18183a', monitor:'#111122', glow:'#3a80ff', label:'Moderno',  emoji:'🏢',
+              desk:'#2a3a5a', deskHL:'#3a5080' },
+  retro:    { f1:'#3d2d0f', f2:'#352809', grid:'#1a1200', wall:'#4a2e10', wallHL:'#7c5528', chair:'#1a1a3a', monitor:'#1a1000', glow:'#e8a020', label:'Retrô',    emoji:'🪵',
+              desk:'#7c5c2a', deskHL:'#a07840' },
+  scifi:    { f1:'#050a14', f2:'#080f1e', grid:'#0d1525', wall:'#0a1a30', wallHL:'#1a4070', chair:'#0a0a25', monitor:'#050510', glow:'#00e5ff', label:'Sci-Fi',   emoji:'🚀',
+              desk:'#0d2840', deskHL:'#1a5080' },
+  natureza: { f1:'#1a2a15', f2:'#162210', grid:'#0f1a0a', wall:'#163520', wallHL:'#2a5530', chair:'#1a2a10', monitor:'#0d1a08', glow:'#22c55e', label:'Natureza', emoji:'🌿',
+              desk:'#2d4a20', deskHL:'#4a7030' },
+}
+
+// ─── Speech bubble ─────────────────────────────────────────────────────────────
+function drawBubble(ctx: CanvasRenderingContext2D, text: string, cx: number, cy: number) {
+  ctx.font = '10px "Segoe UI",sans-serif'
+  const words = text.split(' '), lines: string[] = []
+  let line = ''
+  for (const w of words) {
+    const t = line ? line + ' ' + w : w
+    if (ctx.measureText(t).width > 148) { if (line) lines.push(line); line = w } else line = t
+  }
+  if (line) lines.push(line)
+  const shown = lines.slice(0, 3), lineH = 13
+  const bw = Math.min(168, Math.max(...shown.map(l => ctx.measureText(l).width)) + 18)
+  const bh = shown.length * lineH + 14
+  const bx = cx - bw / 2, by = cy - 44 - bh
+  ctx.fillStyle = 'rgba(14,18,32,0.93)'
+  ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 6); ctx.fill()
+  ctx.strokeStyle = '#4a9eff'; ctx.lineWidth = 1.5
+  ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 6); ctx.stroke()
+  ctx.fillStyle = 'rgba(14,18,32,0.93)'
+  ctx.beginPath(); ctx.moveTo(cx-5, by+bh); ctx.lineTo(cx+5, by+bh); ctx.lineTo(cx, by+bh+7); ctx.closePath(); ctx.fill()
+  ctx.strokeStyle = '#4a9eff'; ctx.lineWidth = 1.5
+  ctx.beginPath(); ctx.moveTo(cx-4, by+bh-1); ctx.lineTo(cx, by+bh+7); ctx.lineTo(cx+4, by+bh-1); ctx.stroke()
+  ctx.fillStyle = '#e8f0ff'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'
+  shown.forEach((l, i) => ctx.fillText(l, bx + 9, by + 7 + i * lineH))
 }
 
 // ─── Room config ──────────────────────────────────────────────────────────────
@@ -97,28 +143,41 @@ function drawRoom(ctx: CanvasRenderingContext2D, sala: SalaConfig, ox: number) {
 function drawDesk(ctx: CanvasRenderingContext2D, t: Theme, ox: number, col: number, row: number) {
   const px = ox + col * TILE, py = row * TILE
   const dw = TILE * 2.6, dh = TILE * 1.2, cx = px + dw/2
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.35)'
+  ctx.beginPath(); ctx.roundRect(px+4, py+4, dw, dh, 5); ctx.fill()
   // Surface
   ctx.fillStyle = t.desk
   ctx.beginPath(); ctx.roundRect(px, py, dw, dh, 6); ctx.fill()
   ctx.strokeStyle = t.deskHL; ctx.lineWidth = 2
   ctx.beginPath(); ctx.roundRect(px+2, py+2, dw-4, dh-4, 4); ctx.stroke()
   // Monitor
-  const mw = 28, mh = 18, mx = cx - mw/2, my = py + 6
+  const mw = 30, mh = 20, mx = cx - mw/2, my = py + 5
   ctx.fillStyle = t.monitor; ctx.fillRect(mx, my, mw, mh)
   ctx.fillStyle = t.glow + '55'; ctx.fillRect(mx+2, my+2, mw-4, mh-4)
-  ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(cx, py+mh+10, 3, 0, Math.PI*2); ctx.fill()
+  // Glow strip at bottom of monitor
+  ctx.fillStyle = t.glow + 'aa'; ctx.fillRect(mx+2, my+mh-3, mw-4, 2)
+  // Stand
+  ctx.fillStyle = t.monitor; ctx.fillRect(cx-3, my+mh, 6, 5); ctx.fillRect(cx-8, my+mh+4, 16, 2)
   // Chair
-  const cy2 = py + dh + 8
+  const cy2 = py + dh + 7
   ctx.fillStyle = t.chair
-  ctx.beginPath(); ctx.ellipse(cx, cy2+10, 16, 12, 0, 0, Math.PI*2); ctx.fill()
-  ctx.fillRect(cx-14, cy2-2, 28, 7)
+  ctx.beginPath(); ctx.ellipse(cx, cy2+11, 17, 12, 0, 0, Math.PI*2); ctx.fill()
+  ctx.fillRect(cx-14, cy2-1, 28, 7)
+  ctx.fillRect(cx-11, cy2-11, 22, 11)
 }
 
 function drawAgent(
   ctx: CanvasRenderingContext2D, agent: IaAgent,
-  px: number, py: number, pulse: number, hovered: boolean, selected: boolean
+  anim: AgentAnim, pulse: number, hovered: boolean, selected: boolean
 ): { id: string; cx: number; cy: number; r: number } {
-  const r = 14 + pulse * 1.5, cx = px, cy = py
+  const r = 14 + pulse * 1.5
+  const bob =
+    anim.state === 'working' ? Math.sin(anim.workTimer * 4) * 2 :
+    anim.state === 'idle'    ? Math.sin(anim.idlePhase) * 1.5 : 0
+  const cx = anim.x, cy = anim.y + bob
+
+  // Selection / hover rings
   if (selected) {
     ctx.strokeStyle = '#7487ff'; ctx.lineWidth = 3
     ctx.beginPath(); ctx.arc(cx, cy, r+7, 0, Math.PI*2); ctx.stroke()
@@ -129,24 +188,44 @@ function drawAgent(
     ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 2
     ctx.beginPath(); ctx.arc(cx, cy, r+5, 0, Math.PI*2); ctx.stroke()
   }
+
+  // Walking legs
+  if (anim.state === 'walking') {
+    const swing = Math.sin(anim.walkPhase * 8) * 9
+    ctx.strokeStyle = agent.cor_hex || '#4e5eff'; ctx.lineWidth = 4; ctx.lineCap = 'round'
+    ctx.beginPath(); ctx.moveTo(cx-4, cy+r*0.7); ctx.lineTo(cx-4+swing, cy+r*1.5); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(cx+4, cy+r*0.7); ctx.lineTo(cx+4-swing, cy+r*1.5); ctx.stroke()
+  }
+
+  // Shadow
   ctx.fillStyle = 'rgba(0,0,0,0.3)'
   ctx.beginPath(); ctx.ellipse(cx+2, cy+4, r, r*0.6, 0, 0, Math.PI*2); ctx.fill()
+  // Body circle
   ctx.fillStyle = agent.cor_hex || '#4e5eff'
   ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill()
   ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1.5
   ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke()
+  // Face
   ctx.fillStyle = '#ffcc99'
   ctx.beginPath(); ctx.arc(cx, cy-r*0.15, r*0.55, 0, Math.PI*2); ctx.fill()
   ctx.fillStyle = '#222'
   ctx.beginPath(); ctx.arc(cx-4, cy-r*0.2, 2.5, 0, Math.PI*2); ctx.fill()
   ctx.beginPath(); ctx.arc(cx+4, cy-r*0.2, 2.5, 0, Math.PI*2); ctx.fill()
+  // Zeus crown
   if (agent.tipo === 'zeus') {
     ctx.fillStyle = '#f59e0b'
     ctx.beginPath()
     ctx.moveTo(cx-10, cy-r-2); ctx.lineTo(cx-7, cy-r-10)
-    ctx.lineTo(cx,    cy-r-5); ctx.lineTo(cx+7, cy-r-10)
+    ctx.lineTo(cx, cy-r-5); ctx.lineTo(cx+7, cy-r-10)
     ctx.lineTo(cx+10, cy-r-2); ctx.closePath(); ctx.fill()
   }
+  // Working: keyboard glow
+  if (anim.state === 'working') {
+    const ka = 0.3 + Math.sin(anim.workTimer * 6) * 0.3
+    ctx.fillStyle = `rgba(100,160,255,${ka})`
+    ctx.fillRect(cx-r*0.6, cy+r*0.5, r*1.2, r*0.25)
+  }
+  // Status dot
   const dotC = STATUS_COLOR[agent.status] ?? '#6b7280'
   ctx.fillStyle = dotC
   ctx.beginPath(); ctx.arc(cx+r*0.65, cy+r*0.65, 5, 0, Math.PI*2); ctx.fill()
@@ -155,6 +234,7 @@ function drawAgent(
     ctx.strokeStyle = `rgba(234,179,8,${0.4+pulse*0.4})`; ctx.lineWidth = 2
     ctx.beginPath(); ctx.arc(cx, cy, r+4+pulse*4, 0, Math.PI*2); ctx.stroke()
   }
+  // Label
   const fs = selected || hovered ? 12 : 10
   ctx.font = `${selected ? 'bold' : 'normal'} ${fs}px 'Segoe UI',sans-serif`
   const lbl = agent.nome.length > 10 ? agent.nome.slice(0,9)+'…' : agent.nome
@@ -165,21 +245,30 @@ function drawAgent(
   ctx.fillStyle = selected ? '#fff' : '#e5e7eb'
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
   ctx.fillText(lbl, cx, ly+(fs+6)/2)
+  // Speech bubble
+  if (anim.bubble && Date.now() < anim.bubble.expiresAt) {
+    drawBubble(ctx, anim.bubble.text, cx, cy - r)
+  }
   return { id: agent.id, cx, cy, r: r+6 }
 }
 
 function drawCorridor(ctx: CanvasRenderingContext2D, ox: number) {
   const H = ROWS * TILE
-  ctx.fillStyle = '#111118'
+  ctx.fillStyle = '#0d1018'
   ctx.fillRect(ox, 0, CORRIDOR_W, H)
-  ctx.fillStyle = 'rgba(255,255,255,0.04)'
+  // Floor guide arrows
+  ctx.fillStyle = 'rgba(255,255,255,0.05)'
   for (let y = TILE; y < H; y += TILE*2) {
     ctx.beginPath()
-    ctx.moveTo(ox+CORRIDOR_W/2,    y)
-    ctx.lineTo(ox+CORRIDOR_W/2-8,  y+14)
-    ctx.lineTo(ox+CORRIDOR_W/2+8,  y+14)
+    ctx.moveTo(ox+CORRIDOR_W/2, y)
+    ctx.lineTo(ox+CORRIDOR_W/2-8, y+14)
+    ctx.lineTo(ox+CORRIDOR_W/2+8, y+14)
     ctx.closePath(); ctx.fill()
   }
+  // Side lines
+  ctx.strokeStyle = 'rgba(60,80,120,0.3)'; ctx.lineWidth = 1
+  ctx.beginPath(); ctx.moveTo(ox+4, 0); ctx.lineTo(ox+4, H); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(ox+CORRIDOR_W-4, 0); ctx.lineTo(ox+CORRIDOR_W-4, H); ctx.stroke()
 }
 
 // ─── Room offset calculation ──────────────────────────────────────────────────
@@ -286,28 +375,84 @@ export default function Office2DView({ agents, onSelectAgent, selectedId }: Prop
   const timeRef     = useRef(0)
   const panningRef  = useRef(false)
   const panStartRef = useRef({ mx:0, my:0, px:0, py:0 })
+  // Animation state — lives in ref to avoid setState inside rAF
+  const animsRef    = useRef<Map<string, AgentAnim>>(new Map())
 
   // Persist salas
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(salas)) }, [salas, storageKey])
 
-  // World dimensions
+  // Stable memoized values (fix re-render loops)
   const WORLD_H = ROWS * TILE
-  const WORLD_W = salas.reduce((acc, s) => acc + s.cols * TILE + CORRIDOR_W, 0)
+  const WORLD_W = useMemo(() => salas.reduce((acc, s) => acc + s.cols * TILE + CORRIDOR_W, 0), [salas])
+  const offsets = useMemo(() => roomOffsets(salas), [salas])
 
-  // Assign agents to rooms
-  const zeusAgents  = agents.filter(a => a.tipo === 'zeus')
-  const espAgents   = agents.filter(a => a.tipo === 'especialista')
-  const restAgents  = agents.filter(a => a.tipo !== 'zeus' && a.tipo !== 'especialista')
+  // Assign agents to rooms — stable with useCallback
+  const agentsForSala = useCallback((idx: number): IaAgent[] => {
+    const zeus = agents.filter(a => a.tipo === 'zeus')
+    const esp  = agents.filter(a => a.tipo === 'especialista')
+    const rest = agents.filter(a => a.tipo !== 'zeus' && a.tipo !== 'especialista')
+    if (idx === 0) return zeus
+    if (idx === 1) return esp
+    const ri = idx - 2
+    const perRoom = Math.ceil(rest.length / Math.max(1, salas.length - 2))
+    return rest.slice(ri * perRoom, (ri + 1) * perRoom)
+  }, [agents, salas])
 
-  function agentsForSala(idx: number): IaAgent[] {
-    if (idx === 0) return zeusAgents
-    if (idx === 1) return espAgents
-    const restIdx = idx - 2
-    const perRoom = Math.ceil(restAgents.length / Math.max(1, salas.length - 2))
-    return restAgents.slice(restIdx * perRoom, (restIdx + 1) * perRoom)
-  }
+  // Desk world position helper
+  const deskPos = useCallback((si: number, di: number) => {
+    const sala = salas[si]; if (!sala) return { x: 0, y: 0 }
+    const slot = sala.desks[di % sala.desks.length]; if (!slot) return { x: 0, y: 0 }
+    const dw = TILE * 2.6, dh = TILE * 1.2
+    return { x: offsets[si] + slot.col * TILE + dw / 2, y: slot.row * TILE + dh + TILE * 0.95 }
+  }, [salas, offsets])
 
-  const offsets = roomOffsets(salas)
+  // Sync animation state when agents/salas change
+  useEffect(() => {
+    const map = animsRef.current
+    salas.forEach((_, si) => {
+      agentsForSala(si).forEach((agent, ai) => {
+        const pos = deskPos(si, ai)
+        if (!map.has(agent.id)) {
+          map.set(agent.id, {
+            state: agent.status === 'ocupada' ? 'working' : 'idle',
+            x: pos.x, y: pos.y, homeX: pos.x, homeY: pos.y,
+            fromX: pos.x, fromY: pos.y, targetX: pos.x, targetY: pos.y,
+            walkProgress: 1, walkPhase: 0,
+            workTimer: Math.random() * Math.PI * 2,
+            idlePhase: Math.random() * Math.PI * 2,
+          })
+        } else {
+          const a = map.get(agent.id)!
+          a.homeX = pos.x; a.homeY = pos.y
+          if (a.state === 'idle' && agent.status === 'ocupada') a.state = 'working'
+          if (a.state === 'working' && agent.status !== 'ocupada') a.state = 'idle'
+        }
+      })
+    })
+    const allIds = new Set(agents.map(a => a.id))
+    map.forEach((_, id) => { if (!allIds.has(id)) map.delete(id) })
+  }, [agents, salas, agentsForSala, deskPos])
+
+  // AI-to-AI message visualization
+  useRealtime<IaMensagem>(
+    'ia_mensagens',
+    companyId ? `company_id=eq.${companyId}` : undefined,
+    (msg) => {
+      if (msg.remetente_tipo !== 'ia' || !msg.remetente_id) return
+      const sender = animsRef.current.get(msg.remetente_id)
+      if (!sender || sender.state === 'walking') return
+      // Find another agent to walk toward
+      let tx = sender.homeX + 50, ty = sender.homeY
+      animsRef.current.forEach((a, id) => {
+        if (id !== msg.remetente_id) { tx = a.homeX; ty = a.homeY }
+      })
+      sender.fromX = sender.x; sender.fromY = sender.y
+      sender.targetX = tx; sender.targetY = ty
+      sender.walkProgress = 0; sender.state = 'walking'; sender.afterWalk = 'talk'
+      sender.bubble = { text: msg.conteudo.slice(0, 120), expiresAt: Date.now() + 5000 }
+    },
+    'INSERT'
+  )
 
   // Coordinate helpers
   const canvasToWorld = useCallback((cx: number, cy: number, canvas: HTMLCanvasElement) => {
@@ -316,59 +461,93 @@ export default function Office2DView({ agents, onSelectAgent, selectedId }: Prop
     return { wx: (cx - offX) / zoom, wy: (cy - offY) / zoom }
   }, [pan, zoom, WORLD_W, WORLD_H])
 
-  // Draw loop
-  const draw = useCallback(() => {
-    const canvas = canvasRef.current; if (!canvas) return
-    const ctx = canvas.getContext('2d'); if (!ctx) return
-    timeRef.current += 0.02
-    const pulse = (Math.sin(timeRef.current) + 1) / 2
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.save()
-    ctx.translate(
-      pan.x + canvas.width  / 2 - (WORLD_W * zoom) / 2,
-      pan.y + canvas.height / 2 - (WORLD_H * zoom) / 2
-    )
-    ctx.scale(zoom, zoom)
-
-    // Corridors + rooms
-    salas.forEach((sala, i) => {
-      if (i > 0) drawCorridor(ctx, offsets[i] - CORRIDOR_W)
-      drawRoom(ctx, sala, offsets[i])
-      const t = THEMES[sala.theme]
-      sala.desks.forEach(d => drawDesk(ctx, t, offsets[i], d.col, d.row))
-    })
-
-    // Edit mode: hover tile highlight
-    if (editMode && hoverTile) {
-      const ox = offsets[hoverTile.salaIdx]
-      ctx.fillStyle = 'rgba(250,204,21,0.25)'
-      ctx.fillRect(ox + hoverTile.col * TILE, hoverTile.row * TILE, TILE, TILE)
-    }
-
-    // Agents
-    const newBounds: typeof boundsRef.current = []
-    salas.forEach((sala, i) => {
-      const roomAgents = agentsForSala(i)
-      roomAgents.forEach((agent, ai) => {
-        const slot = sala.desks[ai % sala.desks.length]
-        if (!slot) return
-        const dw = TILE * 2.6, dh = TILE * 1.2
-        const ax = offsets[i] + slot.col * TILE + dw / 2
-        const ay = slot.row * TILE + dh + TILE * 0.95
-        const b = drawAgent(ctx, agent, ax, ay, pulse, agent.id === hoveredId, agent.id === selectedId)
-        newBounds.push(b)
-      })
-    })
-    boundsRef.current = newBounds
-    ctx.restore()
-  }, [salas, offsets, zoom, pan, hoveredId, selectedId, editMode, hoverTile, WORLD_W, WORLD_H, agentsForSala])
-
+  // Main animation + draw loop (stable — minimal deps, reads from refs)
   useEffect(() => {
-    const loop = () => { draw(); animRef.current = requestAnimationFrame(loop) }
+    const WALK_SPEED = 0.028
+    const loop = () => {
+      animRef.current = requestAnimationFrame(loop)
+      const canvas = canvasRef.current; if (!canvas) return
+      const ctx = canvas.getContext('2d'); if (!ctx) return
+      timeRef.current += 0.02
+      const pulse = (Math.sin(timeRef.current) + 1) / 2
+      const now = Date.now()
+
+      // Update animation states (no setState — pure ref mutation)
+      animsRef.current.forEach((a, id) => {
+        a.idlePhase += 0.04; a.workTimer += 0.05
+        if (a.state === 'walking') {
+          a.walkProgress = Math.min(1, a.walkProgress + WALK_SPEED)
+          a.walkPhase += WALK_SPEED * 1.5
+          a.x = a.fromX + (a.targetX - a.fromX) * a.walkProgress
+          a.y = a.fromY + (a.targetY - a.fromY) * a.walkProgress
+          if (a.walkProgress >= 1) {
+            if (a.afterWalk === 'talk') {
+              a.state = 'talking'
+              setTimeout(() => {
+                const cur = animsRef.current.get(id); if (!cur) return
+                cur.fromX = cur.x; cur.fromY = cur.y
+                cur.targetX = cur.homeX; cur.targetY = cur.homeY
+                cur.walkProgress = 0; cur.state = 'walking'; cur.afterWalk = 'goHome'
+              }, 4000)
+            } else {
+              a.state = 'working'; a.x = a.homeX; a.y = a.homeY; a.afterWalk = undefined
+            }
+          }
+        }
+        if (a.state === 'talking' && a.bubble && now > a.bubble.expiresAt) a.bubble = undefined
+      })
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.save()
+      ctx.translate(
+        pan.x + canvas.width  / 2 - (WORLD_W * zoom) / 2,
+        pan.y + canvas.height / 2 - (WORLD_H * zoom) / 2
+      )
+      ctx.scale(zoom, zoom)
+
+      // Corridors + rooms
+      salas.forEach((sala, i) => {
+        if (i > 0) drawCorridor(ctx, offsets[i] - CORRIDOR_W)
+        drawRoom(ctx, sala, offsets[i])
+        const t = THEMES[sala.theme]
+        sala.desks.forEach(d => drawDesk(ctx, t, offsets[i], d.col, d.row))
+      })
+
+      // Edit mode tile highlight
+      if (editMode && hoverTile) {
+        const ox = offsets[hoverTile.salaIdx]
+        ctx.fillStyle = 'rgba(250,204,21,0.25)'
+        ctx.fillRect(ox + hoverTile.col * TILE, hoverTile.row * TILE, TILE, TILE)
+      }
+
+      // Agents
+      const newBounds: typeof boundsRef.current = []
+      salas.forEach((sala, i) => {
+        agentsForSala(i).forEach((agent, ai) => {
+          const anim = animsRef.current.get(agent.id)
+          if (!anim) {
+            // Fallback: draw at desk position if anim not yet initialized
+            const slot = sala.desks[ai % sala.desks.length]; if (!slot) return
+            const dw = TILE * 2.6, dh = TILE * 1.2
+            const fallback: AgentAnim = {
+              state:'idle', x: offsets[i]+slot.col*TILE+dw/2, y: slot.row*TILE+dh+TILE*0.95,
+              homeX:0,homeY:0,fromX:0,fromY:0,targetX:0,targetY:0,
+              walkProgress:1,walkPhase:0,workTimer:0,idlePhase:timeRef.current
+            }
+            const b = drawAgent(ctx, agent, fallback, pulse, agent.id===hoveredId, agent.id===selectedId)
+            newBounds.push(b); return
+          }
+          const b = drawAgent(ctx, agent, anim, pulse, agent.id===hoveredId, agent.id===selectedId)
+          newBounds.push(b)
+        })
+      })
+      boundsRef.current = newBounds
+      ctx.restore()
+    }
     animRef.current = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(animRef.current)
-  }, [draw])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoom, pan, hoveredId, selectedId, editMode, hoverTile, salas, offsets, agentsForSala, WORLD_W, WORLD_H])
 
   // Resize
   useEffect(() => {
