@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { X, Send, Brain, Zap, Clock, CheckCircle, AlertCircle, Loader2, Trash2, Eye } from 'lucide-react'
 import type { IaAgent } from '../../../types'
 import type { IaAcao, IaMemoria } from '../../../hooks/useEcosystem'
-import type { AcaoTipo, AcaoPrio } from '../../../lib/ecosystem/EcosystemEngine'
+import type { AcaoTipo, AcaoPrio, MemoriaTipo, MemoriaViz } from '../../../lib/ecosystem/EcosystemEngine'
 
 interface Props {
   agents:       IaAgent[]
@@ -25,8 +25,9 @@ interface Props {
   fetchHistory:  (limit?: number) => Promise<IaAcao[]>
   fetchMemories: (agentId: string) => Promise<IaMemoria[]>
   saveMemoria:   (params: {
-    agent_id: string; tipo?: string; titulo?: string; conteudo: string
-    tags?: string[]; visibilidade?: 'privada' | 'equipe' | 'global'; importancia?: number
+    agent_id: string; tipo?: MemoriaTipo; titulo?: string; conteudo: string
+    tags?: string[]; visibilidade?: MemoriaViz; importancia?: number
+    expira_em?: Date; origem_acao_id?: string
   }) => Promise<IaMemoria | null>
   pendingCount:  number
   isProcessing:  boolean
