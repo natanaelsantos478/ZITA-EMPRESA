@@ -93,10 +93,7 @@ export class AgentAvatar {
   private _head:   THREE.Mesh | null = null
   private _armL:   THREE.Mesh | null = null
   private _armR:   THREE.Mesh | null = null
-  private _legL:   THREE.Mesh | null = null
-  private _legR:   THREE.Mesh | null = null
   private _neck:   THREE.Mesh | null = null
-  private _statusDot: THREE.Mesh | null = null
 
   // Status dot glow animation
   private _dotMat: THREE.MeshStandardMaterial | null = null
@@ -178,7 +175,7 @@ export class AgentAvatar {
       const thigh = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.2, 4, 8), pantsMat))
       thigh.position.set(lx, 0.65, 0.14)
       thigh.rotation.x = Math.PI / 2.2; thigh.castShadow = true
-      if (li === 0) this._legL = thigh; else this._legR = thigh
+      void li
 
       const shin = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.18, 4, 8), pantsMat))
       shin.position.set(lx, 0.44, 0.38); shin.rotation.x = -Math.PI / 6
@@ -291,7 +288,7 @@ export class AgentAvatar {
     const sc = statusColors[agent.status] ?? 0x555566
     this._dotMat = stdMat(sc, 0.3, 0.0, sc, 0.9)
     const dot = add(new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), this._dotMat))
-    dot.position.set(-0.22, 1.21, 0.21); this._statusDot = dot
+    dot.position.set(-0.22, 1.21, 0.21)
 
     // Status dot point light
     const dotLight = new THREE.PointLight(sc, 0.3, 0.7)
