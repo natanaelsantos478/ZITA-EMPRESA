@@ -1,32 +1,41 @@
 import { useState, useCallback, useEffect } from 'react'
-import { LayoutTemplate, Building2, Box } from 'lucide-react'
+import { LayoutTemplate, Box } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useAgentStatus } from '../hooks/useAgentStatus'
 import { useRealtime } from '../hooks/useRealtime'
 import { supabase } from '../lib/supabase'
 import type { IaAgent, IaTarefa } from '../types'
 import CanvasView from '../modules/IAs/Organograma/CanvasView'
+import EscritorioView from '../modules/IAs/Escritorio/EscritorioView'
 import Escritorio2D from '../modules/IAs/Escritorio2D/Escritorio2D'
 import Office3DView from '../modules/IAs/Organograma/Office3DView'
 import ControleIAPanel from '../modules/IAs/ControleIA/ControleIAPanel'
 import ChatIA from '../modules/IAs/Chat/ChatIA'
 import ErrorBoundary from '../components/Layout/ErrorBoundary'
 
-type ViewMode = 'canvas' | '2d' | '3d'
+type ViewMode = 'canvas' | 'retro' | 'moderno' | 'profissional' | '3d'
 
-const VIEWS = [
-  { mode: 'canvas' as ViewMode, icon: LayoutTemplate, label: 'Canvas' },
-  { mode: '2d'    as ViewMode, icon: Building2,      label: '2D'     },
-  { mode: '3d'    as ViewMode, icon: Box,            label: '3D'     },
+const VIEWS: { mode: ViewMode; label: string }[] = [
+  { mode: 'canvas',      label: 'Canvas'       },
+  { mode: 'retro',       label: '🪵 Retrô'     },
+  { mode: 'moderno',     label: '🏢 Moderno'   },
+  { mode: 'profissional',label: '⬛ Profissional'},
+  { mode: '3d',          label: '3D'           },
 ]
+
+function resolveInitialView(): ViewMode {
+  const saved = localStorage.getItem('zita_view_mode') as ViewMode | null
+  const valid: ViewMode[] = ['canvas', 'retro', 'moderno', 'profissional', '3d']
+  // '2d' was the old key — migrate to 'profissional'
+  if (saved === ('2d' as string)) return 'profissional'
+  return valid.includes(saved!) ? saved! : 'profissional'
+}
 
 export default function Organograma() {
   const { companyId } = useAuth()
   const { agents, loading } = useAgentStatus()
 
-  const [view, setView] = useState<ViewMode>(
-    () => (localStorage.getItem('zita_view_mode') as ViewMode) ?? '2d'
-  )
+  const [view, setView] = useState<ViewMode>(resolveInitialView)
   const [selectedAgent, setSelectedAgent] = useState<IaAgent | null>(null)
   const [chatAgent, setChatAgent]         = useState<IaAgent | null>(null)
   const [tarefasCounts, setTarefasCounts] = useState<Record<string, number>>({})
@@ -70,6 +79,12 @@ export default function Organograma() {
     )
   }
 
+  const isCanvas  = view === 'canvas'
+  const isRetro   = view === 'retro'
+  const isModerno = view === 'moderno'
+  const isFlat    = view === 'profissional'
+  const is3D      = view === '3d'
+
   return (
     <div className="flex flex-col h-[calc(100vh-56px)]">
       {/* View toggle */}
@@ -78,7 +93,7 @@ export default function Organograma() {
           {agents.length} agente{agents.length !== 1 ? 's' : ''}
         </span>
         <div className="flex items-center bg-gray-800 border border-gray-700 rounded-lg p-0.5 gap-0.5">
-          {VIEWS.map(({ mode, icon: Icon, label }) => (
+          {VIEWS.map(({ mode, label }) => (
             <button
               key={mode}
               onClick={() => handleChangeView(mode)}
@@ -86,7 +101,8 @@ export default function Organograma() {
                 view === mode ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-400 hover:text-white hover:bg-gray-700'
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
+              {mode === 'canvas' && <LayoutTemplate className="w-3.5 h-3.5" />}
+              {mode === '3d'     && <Box className="w-3.5 h-3.5" />}
               {label}
             </button>
           ))}
@@ -97,15 +113,31 @@ export default function Organograma() {
       {/* Content */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className="flex-1 min-h-0 overflow-hidden relative">
-          {view === 'canvas' && <CanvasView />}
-          {view === '2d' && (
+
+          {isCanvas && <CanvasView />}
+
+          {/* Pixel-art canvas views — retro e moderno */}
+          {(isRetro || isModerno) && (
+            <EscritorioView
+              key={view}
+              initialTheme={view === 'retro' ? 'retro' : 'moderno'}
+              agents={agents}
+              tarefasCounts={tarefasCounts}
+              onSelectAgent={handleSelect}
+              onChat={handleChat}
+            />
+          )}
+
+          {/* Flat DOM view — profissional */}
+          {isFlat && (
             companyId
               ? <ErrorBoundary key={companyId}><Escritorio2D key={companyId} /></ErrorBoundary>
               : <div className="flex items-center justify-center h-full">
                   <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
                 </div>
           )}
-          {view === '3d' && (
+
+          {is3D && (
             <Office3DView
               agents={agents}
               tarefasCounts={tarefasCounts}
@@ -115,8 +147,8 @@ export default function Organograma() {
           )}
         </div>
 
-        {/* Side panel — 3D only (canvas e 2D gerenciam o próprio painel) */}
-        {view === '3d' && selectedAgent && (
+        {/* Side panel — 3D only */}
+        {is3D && selectedAgent && (
           <ControleIAPanel
             agent={selectedAgent}
             onClose={() => setSelectedAgent(null)}
