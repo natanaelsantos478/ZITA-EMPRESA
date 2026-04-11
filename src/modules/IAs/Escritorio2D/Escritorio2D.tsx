@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Plus, Pencil, Trash2, ZoomIn, ZoomOut, Maximize2, RotateCw } from 'lucide-react'
 import { useAuth } from '../../../contexts/AuthContext'
-import { useAgentStatus } from '../../../hooks/useAgentStatus'
 import type { IaAgent } from '../../../types'
 import Personagem2D, { AGENT_CIRCLE_CX_OFFSET, AGENT_CIRCLE_CY_OFFSET } from './Personagem2D'
 import Sala2D, { type SalaConfig } from './Sala2D'
@@ -91,9 +90,13 @@ function makeDefaultFurniture(salaId: string): FurnitureItem[] {
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export default function Escritorio2D() {
+interface Escritorio2DProps {
+  agents: IaAgent[]
+  tarefasCounts?: Record<string, number>
+}
+
+export default function Escritorio2D({ agents, tarefasCounts: _tarefasCounts = {} }: Escritorio2DProps) {
   const { companyId, isAdmin } = useAuth()
-  const { agents } = useAgentStatus()
 
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 20, y: 20 })

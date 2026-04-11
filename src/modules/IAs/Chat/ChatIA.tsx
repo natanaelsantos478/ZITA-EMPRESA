@@ -27,7 +27,7 @@ interface Props {
 }
 
 export default function ChatIA({ agent, onClose }: Props) {
-  const { conversa, mensagens, loading, typing, initConversa, sendMessage } = useChat(agent.id)
+  const { conversa, mensagens, loading, typing, initConversa, sendMessage } = useChat(agent)
   const [texto, setTexto] = useState('')
   const [sending, setSending] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)

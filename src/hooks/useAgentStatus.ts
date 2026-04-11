@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import type { IaAgent, AgentStatus } from '../types'
 import { useAuth } from '../contexts/AuthContext'
@@ -8,6 +8,11 @@ export function useAgentStatus() {
   const [agents, setAgents] = useState<IaAgent[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Unique suffix per hook instance — prevents crash when multiple components
+  // call useAgentStatus() simultaneously (Supabase throws if you call .on()
+  // after .subscribe() on a channel with the same name).
+  const instanceId = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`)
+
   useEffect(() => {
     if (!companyId) { setLoading(false); return }
 
@@ -16,13 +21,15 @@ export function useAgentStatus() {
       .select('*')
       .eq('company_id', companyId)
       .order('tipo', { ascending: true })
-      .then(({ data }) => {
-        if (data) setAgents(data as IaAgent[])
+      .then(({ data, error }) => {
+        if (!error && data) setAgents(data as IaAgent[])
         setLoading(false)
       })
 
+    const channelName = `agents-${companyId}-${instanceId.current}`
+
     const channel = supabase
-      .channel(`agents-status-${companyId}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'ia_agents', filter: `company_id=eq.${companyId}` },
@@ -58,4 +65,3 @@ export function useAgentStatus() {
 
   return { agents, statusMap, loading }
 }
-

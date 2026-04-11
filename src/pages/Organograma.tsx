@@ -6,6 +6,7 @@ import { useRealtime } from '../hooks/useRealtime'
 import { supabase } from '../lib/supabase'
 import type { IaAgent, IaTarefa } from '../types'
 import CanvasView from '../modules/IAs/Organograma/CanvasView'
+import Office2DView from '../modules/IAs/Organograma/Office2DView'
 import EscritorioView from '../modules/IAs/Escritorio/EscritorioView'
 import Escritorio2D from '../modules/IAs/Escritorio2D/Escritorio2D'
 import Office3DView from '../modules/IAs/Organograma/Office3DView'
@@ -13,18 +14,18 @@ import ControleIAPanel from '../modules/IAs/ControleIA/ControleIAPanel'
 import ChatIA from '../modules/IAs/Chat/ChatIA'
 import ErrorBoundary from '../components/Layout/ErrorBoundary'
 
-type ViewMode = 'canvas' | 'retro' | 'moderno' | 'profissional' | '3d'
+type ViewMode = 'canvas' | 'retro' | 'moderno' | 'profissional' | 'salas' | '3d'
 
 const VIEWS: { mode: ViewMode; label: string }[] = [
-  { mode: 'canvas',       label: 'Canvas'        },
-  { mode: 'retro',        label: '🪵 Retrô'      },
-  { mode: 'moderno',      label: '🏢 Moderno'    },
-  { mode: 'profissional', label: '⬛ Profissional' },
-  { mode: '3d',           label: '3D'            },
+  { mode: 'canvas',       label: 'Canvas'       },
+  { mode: 'profissional', label: '🗺 Escritório' },
+  { mode: 'retro',        label: '🪵 Retrô'     },
+  { mode: 'moderno',      label: '🏢 Moderno'   },
+  { mode: 'salas',        label: '⬛ Salas'      },
+  { mode: '3d',           label: '3D'           },
 ]
 
-// Wrap around any view component to guarantee it fills the container
-// regardless of h-full CSS chain issues in different browsers
+// Wrap any view to guarantee it fills the container
 function ViewSlot({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -37,8 +38,9 @@ function ViewSlot({ children }: { children: React.ReactNode }) {
 
 function resolveInitialView(): ViewMode {
   const saved = localStorage.getItem('zita_view_mode')
-  const valid: ViewMode[] = ['canvas', 'retro', 'moderno', 'profissional', '3d']
-  if (saved === '2d') return 'profissional'
+  const valid: ViewMode[] = ['canvas', 'retro', 'moderno', 'profissional', 'salas', '3d']
+  // Migrate old keys
+  if (saved === '2d' || saved === 'profissional') return 'profissional'
   return valid.includes(saved as ViewMode) ? (saved as ViewMode) : 'profissional'
 }
 
@@ -48,7 +50,7 @@ export default function Organograma() {
 
   const [view, setView]               = useState<ViewMode>(resolveInitialView)
   const [selectedAgent, setSelectedAgent] = useState<IaAgent | null>(null)
-  const [chatAgent, setChatAgent]         = useState<IaAgent | null>(null)
+  const [chatAgent,     setChatAgent]     = useState<IaAgent | null>(null)
   const [tarefasCounts, setTarefasCounts] = useState<Record<string, number>>({})
 
   useEffect(() => {
@@ -129,14 +131,28 @@ export default function Organograma() {
       </div>
 
       {/* ── Content ──────────────────────────────────────────────────────────── */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden" style={{ position: 'relative' }}>
 
-        {/* Main view area — position:relative is the containing block for ViewSlot */}
+        {/* Main view area */}
         <div className="flex-1 min-h-0 overflow-hidden" style={{ position: 'relative' }}>
 
           {view === 'canvas' && (
             <ViewSlot>
               <CanvasView />
+            </ViewSlot>
+          )}
+
+          {/* ── Escritório 2D — canvas Zelda-style bonito ─────────────────── */}
+          {view === 'profissional' && (
+            <ViewSlot>
+              <Office2DView
+                key="office2d"
+                agents={agents}
+                tarefasCounts={tarefasCounts}
+                onSelectAgent={handleSelect}
+                onChat={handleChat}
+                selectedId={selectedAgent?.id}
+              />
             </ViewSlot>
           )}
 
@@ -153,10 +169,15 @@ export default function Organograma() {
             </ViewSlot>
           )}
 
-          {view === 'profissional' && (
+          {/* ── Salas — visão flat com simulação Sims ─────────────────────── */}
+          {view === 'salas' && (
             <ViewSlot>
               {companyId
-                ? <Escritorio2D key={companyId} />
+                ? <Escritorio2D
+                    key={companyId}
+                    agents={agents}
+                    tarefasCounts={tarefasCounts}
+                  />
                 : <div className="flex items-center justify-center flex-1">
                     <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
                   </div>
@@ -176,8 +197,8 @@ export default function Organograma() {
           )}
         </div>
 
-        {/* Side panel — 3D only */}
-        {view === '3d' && selectedAgent && (
+        {/* Side panel — para Office2DView e 3D */}
+        {(view === '3d' || view === 'profissional') && selectedAgent && (
           <ControleIAPanel
             agent={selectedAgent}
             onClose={() => setSelectedAgent(null)}
