@@ -2,8 +2,9 @@ import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
-const LOCKOUT_KEY = 'zita_login_lockout'
-const LOCKOUT_MS = 30_000
+const LOCKOUT_KEY   = 'zita_login_lockout'
+const SAVED_KEY     = 'zita_saved_login'
+const LOCKOUT_MS    = 30_000
 
 function getLockoutRemaining(): number {
   const lockedAt = localStorage.getItem(LOCKOUT_KEY)
@@ -11,6 +12,16 @@ function getLockoutRemaining(): number {
   const elapsed = Date.now() - Number(lockedAt)
   if (elapsed >= LOCKOUT_MS) return 0
   return Math.ceil((LOCKOUT_MS - elapsed) / 1000)
+}
+
+function loadSaved(): { login: string; password: string } | null {
+  try {
+    const raw = localStorage.getItem(SAVED_KEY)
+    if (!raw) return null
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
 }
 
 // Left panel: animated SVG organogram decoration
@@ -49,12 +60,15 @@ export default function Login() {
   const { signIn, user } = useAuth()
   const navigate = useNavigate()
 
-  const [login, setLogin] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const saved = loadSaved()
+
+  const [login, setLogin]           = useState(saved?.login ?? '')
+  const [password, setPassword]     = useState(saved?.password ?? '')
+  const [error, setError]           = useState('')
+  const [loading, setLoading]       = useState(false)
   const [lockoutSeconds, setLockoutSeconds] = useState(getLockoutRemaining)
-  const [showPassword, setShowPassword] = useState(false)
+  const [showPassword, setShowPassword]     = useState(false)
+  const [rememberLogin, setRememberLogin]   = useState(!!saved)
 
   useEffect(() => {
     if (user) navigate('/dashboard', { replace: true })
@@ -103,9 +117,26 @@ export default function Login() {
       const remaining = getLockoutRemaining()
       if (remaining > 0) setLockoutSeconds(remaining)
     } else {
+      if (rememberLogin) {
+        localStorage.setItem(SAVED_KEY, JSON.stringify({ login, password }))
+      } else {
+        localStorage.removeItem(SAVED_KEY)
+      }
       navigate('/dashboard', { replace: true })
     }
 
+    setLoading(false)
+  }
+
+  async function handleQuickLogin() {
+    if (!saved || lockoutSeconds > 0) return
+    setLogin(saved.login)
+    setPassword(saved.password)
+    setError('')
+    setLoading(true)
+    const { error: err } = await signIn(saved.login, saved.password)
+    if (err) setError(err)
+    else navigate('/dashboard', { replace: true })
     setLoading(false)
   }
 
@@ -144,6 +175,24 @@ export default function Login() {
             <h1 className="text-2xl font-bold text-white mt-3">ZITA</h1>
             <p className="text-gray-400 text-sm mt-1">Acesse o Escritório de IA</p>
           </div>
+
+          {/* Quick login button — shown only when credentials are saved */}
+          {saved && !loading && (
+            <button
+              onClick={handleQuickLogin}
+              disabled={lockoutSeconds > 0}
+              className="w-full mb-6 flex items-center gap-3 px-4 py-3 rounded-xl bg-brand-600/10 border border-brand-500/30 hover:bg-brand-600/20 hover:border-brand-500/60 transition-all disabled:opacity-50"
+            >
+              <div className="w-8 h-8 rounded-full bg-brand-600/30 flex items-center justify-center flex-shrink-0">
+                <span className="text-lg">⚡</span>
+              </div>
+              <div className="text-left flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white leading-tight">Acesso rápido</p>
+                <p className="text-xs text-gray-400 truncate">{saved.login}</p>
+              </div>
+              <span className="text-xs text-brand-400 flex-shrink-0">Entrar →</span>
+            </button>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -189,6 +238,23 @@ export default function Login() {
                   {showPassword ? '🙈' : '👁'}
                 </button>
               </div>
+            </div>
+
+            {/* Remember login checkbox */}
+            <div className="flex items-center gap-2">
+              <input
+                id="remember"
+                type="checkbox"
+                checked={rememberLogin}
+                onChange={(e) => {
+                  setRememberLogin(e.target.checked)
+                  if (!e.target.checked) localStorage.removeItem(SAVED_KEY)
+                }}
+                className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-brand-500 focus:ring-brand-500 cursor-pointer"
+              />
+              <label htmlFor="remember" className="text-sm text-gray-400 cursor-pointer select-none">
+                Lembrar login (acesso rápido)
+              </label>
             </div>
 
             {error && (

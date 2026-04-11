@@ -305,7 +305,7 @@ export default function Escritorio2D() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="relative w-full h-full overflow-hidden" style={{ backgroundColor: '#0b0d13' }}>
+    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', backgroundColor: '#0b0d13' }}>
 
       {/* ── Toolbar de admin ─────────────────────────────────────────────── */}
       {isAdmin && (

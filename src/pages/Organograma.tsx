@@ -10,6 +10,7 @@ import Escritorio2D from '../modules/IAs/Escritorio2D/Escritorio2D'
 import Office3DView from '../modules/IAs/Organograma/Office3DView'
 import ControleIAPanel from '../modules/IAs/ControleIA/ControleIAPanel'
 import ChatIA from '../modules/IAs/Chat/ChatIA'
+import ErrorBoundary from '../components/Layout/ErrorBoundary'
 
 type ViewMode = 'canvas' | '2d' | '3d'
 
@@ -95,11 +96,11 @@ export default function Organograma() {
 
       {/* Content */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        <div className="flex-1 min-h-0 overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-hidden relative">
           {view === 'canvas' && <CanvasView />}
           {view === '2d' && (
             companyId
-              ? <Escritorio2D key={companyId} />
+              ? <ErrorBoundary key={companyId}><Escritorio2D key={companyId} /></ErrorBoundary>
               : <div className="flex items-center justify-center h-full">
                   <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
                 </div>
