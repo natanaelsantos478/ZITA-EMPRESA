@@ -97,7 +97,13 @@ export default function Organograma() {
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className="flex-1 min-h-0 overflow-hidden">
           {view === 'canvas' && <CanvasView />}
-          {view === '2d' && <Escritorio2D />}
+          {view === '2d' && (
+            companyId
+              ? <Escritorio2D key={companyId} />
+              : <div className="flex items-center justify-center h-full">
+                  <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+          )}
           {view === '3d' && (
             <Office3DView
               agents={agents}

@@ -60,6 +60,25 @@ export default function Login() {
     if (user) navigate('/dashboard', { replace: true })
   }, [user, navigate])
 
+  // DEV BYPASS — preenche e envia automaticamente se .env.local configurado
+  useEffect(() => {
+    if (import.meta.env.VITE_DEV_BYPASS !== 'true') return
+    const devEmail = import.meta.env.VITE_DEV_BYPASS_EMAIL as string | undefined
+    const devPass  = import.meta.env.VITE_DEV_BYPASS_PASSWORD as string | undefined
+    if (!devEmail || !devPass || devPass === 'sua_senha_aqui') return
+    setLogin(devEmail)
+    setPassword(devPass)
+    const timer = setTimeout(async () => {
+      setLoading(true)
+      const { error: err } = await signIn(devEmail, devPass)
+      if (!err) navigate('/dashboard', { replace: true })
+      else setError(err)
+      setLoading(false)
+    }, 300)
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Countdown timer for lockout
   useEffect(() => {
     if (lockoutSeconds <= 0) return
