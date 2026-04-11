@@ -1,0 +1,383 @@
+================================================================================
+CONTEXTO COMPLETO — ZITA-EMPRESA — HANDOFF PARA NOVO CHAT
+================================================================================
+Data: 2026-04-11
+Branch ativa: claude/fix-organograma-toggle-EpEMs
+Repo: natanaelsantos478/zita-empresa
+Dir:  /home/user/ZITA-EMPRESA
+
+================================================================================
+1. O QUE É O SOFTWARE
+================================================================================
+
+ZITA é uma plataforma SaaS de gerenciamento de equipes de IAs para empresas.
+Stack: React 19 + TypeScript + Vite + TailwindCSS + Supabase.
+
+Funcionalidades principais:
+- Organograma de IAs com 5 visualizações: Canvas, Retrô, Moderno, Profissional, 3D
+- Escritório 3D interativo com avatares animados (Three.js), FPS controls, speech bubbles
+- Ecossistema de IAs: memória compartilhada, fila de ações assíncronas, hierarquia
+- Chat com cada IA individualmente
+- Agente Zeus: IA mestre que dá ordens e recebe relatórios de todas as outras
+- Integração com Gemini (Google AI Studio) via API key por agente
+
+Tabelas Supabase relevantes:
+  ia_agents    (25 cols) — cada IA registrada com hierarquia, capacidades, personalidade
+  ia_conversas (15 cols) — histórico de conversas
+  ia_mensagens (17 cols) — mensagens individuais
+  ia_tarefas   (22 cols) — fila de tarefas
+  ia_memorias  (13 cols) — memória compartilhada privada/equipe/global
+  ia_acoes     (17 cols) — fila de ações assíncronas agente↔agente
+
+================================================================================
+2. O QUE JÁ FOI IMPLEMENTADO E COMMITADO (tudo em produção)
+================================================================================
+
+Commit mais recente: 7a54001 — "feat: AI ecosystem — shared memory, async action queue, Zeus 24/7"
+
+Arquivos já prontos e corretos:
+  src/pages/Organograma.tsx               — página principal com 5 abas de view
+  src/hooks/useEcosystem.ts               — hook que inicializa o ecossistema no browser
+  src/modules/IAs/Ecosystem/EcosystemPanel.tsx — painel UI (3 tabs: Enviar, Fila, Memórias)
+  src/lib/three-office/FPSControls.ts     — controles FPS do escritório 3D
+  src/lib/three-office/OfficeScene.ts     — cena 3D (mesas, cadeiras, plantas, luzes)
+  src/lib/three-office/AgentAvatar.ts     — avatares 3D animados com speech bubbles
+  src/modules/IAs/Organograma/Office3DView.tsx — view 3D principal
+  supabase/functions/zeus-scheduler/      — Edge Function para Zeus 24/7 (já deployada via MCP)
+  pg_cron job: ativa a cada 2 minutos chamando zeus-scheduler
+
+================================================================================
+3. O QUE FOI IMPLEMENTADO NESTA SESSÃO (AINDA NÃO COMMITADO)
+================================================================================
+
+ARQUIVO 1 — MODIFICADO: src/lib/ecosystem/EcosystemEngine.ts
+---------------------------------------------------------------
+ADICIONADO em relação à versão anterior:
+
+a) Novo tipo exportado:
+   export interface IntegrationCall {
+     integration: string   // 'whatsapp' | 'slack' | 'notion' | 'webhook_out' | 'http'
+     action:      string   // 'send_message' | 'post' | 'create_page' | etc.
+     params:      Record<string, unknown>
+     webhook_id?: string
+   }
+
+b) Interface interna AgentConnections:
+   interface AgentConnections {
+     whatsapp?:    { phone_number_id: string; access_token: string }
+     slack?:       { bot_token: string; default_channel: string }
+     notion?:      { api_key: string; default_database_id?: string }
+     webhook_out?: Array<{ id: string; nome: string; url: string; token?: string }>
+   }
+
+c) GeminiResponse agora inclui:
+   api_calls?: IntegrationCall[]
+
+d) Novos métodos privados:
+   - _executeTools(calls, agent)  — itera api_calls, cada falha é capturada individualmente
+   - _executeIntegration(call, agent) — executa a chamada real com AbortSignal.timeout(10_000)
+     Suporta: webhook_out, whatsapp (Cloud API v19), slack (chat.postMessage), notion, http genérico
+
+e) _buildIntegrationList(agent) — monta lista de integrações disponíveis para o prompt
+f) _buildSystemPrompt() — agora inclui seção "═══ SUAS INTEGRAÇÕES DISPONÍVEIS ═══"
+   e o schema JSON retornado pelo Gemini agora inclui o campo "api_calls"
+g) processAction() — após _callGemini(), chama _executeTools() e salva tool_results no resultado
+
+ARQUIVO 2 — CRIADO: supabase/functions/api-webhook/index.ts
+------------------------------------------------------------
+Receptor universal de webhooks inbound.
+- URL: POST /functions/v1/api-webhook?agent_id=<uuid>&company_id=<uuid>&source=<nome>
+- Headers alternativos: x-agent-id, x-company-id, x-source, x-priority
+- Aceita JSON ou form-urlencoded
+- Insere na tabela ia_acoes com tipo='comando' e retorna 200 imediatamente
+- NÃO processa — apenas enfileira. Processamento é assíncrono.
+- Suporte a prioridade via query param (baixa|normal|alta|urgente)
+
+================================================================================
+4. O QUE AINDA FALTA FAZER (PRÓXIMA TAREFA)
+================================================================================
+
+TAREFA PENDENTE: Atualizar src/modules/IAs/Config/IAModal.tsx
+--------------------------------------------------------------
+
+O IAModal atualmente suporta apenas UMA integração (um único provedor de IA + uma API key).
+Precisa-se adicionar uma seção "Conexões API" para configurar por agente:
+  - WhatsApp: phone_number_id + access_token
+  - Slack: bot_token + default_channel
+  - Notion: api_key + default_database_id
+  - Webhooks de saída: lista (múltiplos), cada um com: nome + url + bearer token (opcional)
+
+Como deve ser armazenado (dentro de integracao_config.connections):
+  integracao_config = {
+    gemini_api_key: "AIzaSy...",          // já existia
+    connections: {                         // NOVO
+      whatsapp:    { phone_number_id: "...", access_token: "..." },
+      slack:       { bot_token: "...", default_channel: "#geral" },
+      notion:      { api_key: "...", default_database_id: "..." },
+      webhook_out: [
+        { id: "uuid-gerado-no-frontend", nome: "n8n Marketing", url: "https://...", token: "..." },
+        { id: "uuid-2", nome: "Make.com Vendas", url: "https://...", token: "" }
+      ]
+    }
+  }
+
+Estado atual do IAModal (linha 69-76) para referência — salvar da forma correta:
+  const integracao_config: Record<string, unknown> = {}
+  if (apiKey) {
+    if (integTipo === 'gemini') integracao_config.gemini_api_key = apiKey
+    else integracao_config.api_key = apiKey
+  } else if (agent?.integracao_config) {
+    Object.assign(integracao_config, agent.integracao_config)
+  }
+
+O novo código deve preservar gemini_api_key e adicionar connections.
+Não quebrar o que já existe.
+
+DEPOIS disso:
+- git add -A
+- git commit -m "feat: API integration layer — tool executor, inbound webhook, multi-service connections UI"
+- git push -u origin claude/fix-organograma-toggle-EpEMs
+
+================================================================================
+5. ESTRUTURA DE ARQUIVOS CHAVE
+================================================================================
+
+src/
+  pages/
+    Organograma.tsx              — view principal com Brain button (toggle EcosystemPanel)
+  hooks/
+    useEcosystem.ts              — inicializa EcosystemEngine, polling 30s, realtime
+    useAgentStatus.ts            — lista de agentes via Supabase
+    useRealtime.ts               — helper de subscription realtime
+  lib/
+    supabase.ts                  — cliente Supabase
+    ecosystem/
+      EcosystemEngine.ts         — motor do ecossistema (MODIFICADO NESTA SESSÃO)
+    three-office/
+      FPSControls.ts             — movimento WASD + mouse
+      OfficeScene.ts             — cena 3D (mesas, cadeiras, plantas)
+      AgentAvatar.ts             — avatares 3D com speech bubbles
+  modules/
+    IAs/
+      Config/
+        IAModal.tsx              — modal de criar/editar IA (PRECISA SER ATUALIZADO)
+      Organograma/
+        CanvasView.tsx           — view canvas drag-n-drop
+        Office3DView.tsx         — view 3D FPS
+      Escritorio/
+        EscritorioView.tsx       — views retrô/moderno
+      Escritorio2D/
+        Escritorio2D.tsx         — view profissional (flat)
+      Ecosystem/
+        EcosystemPanel.tsx       — painel lateral do ecossistema (já ok)
+      Chat/
+        ChatIA.tsx               — chat individual com IA
+      ControleIA/
+        ControleIAPanel.tsx      — painel de controle (view 3D)
+  types/
+    index.ts                     — todos os tipos TypeScript
+  contexts/
+    AuthContext.tsx              — companyId, userId
+
+supabase/
+  functions/
+    zeus-scheduler/              — Edge Function Zeus (já deployada, dir vazio local)
+    api-webhook/
+      index.ts                   — CRIADO NESTA SESSÃO (ainda não deployado)
+
+================================================================================
+6. COMO O ECOSSISTEMA FUNCIONA (RESUMO TÉCNICO)
+================================================================================
+
+FLUXO INBOUND (receber evento externo → agente processa):
+  Sistema externo → POST /api-webhook?agent_id=X&company_id=Y
+  → insere ia_acoes { status: 'pendente' }
+  → browser (useEcosystem hook) detecta via realtime ou polling 30s
+  → EcosystemEngine.processAction() roda:
+     1. Claim otimista (UPDATE WHERE status='pendente')
+     2. _callGemini() → Gemini retorna JSON com resposta + api_calls
+     3. _executeTools() → executa cada api_call (WhatsApp/Slack/Notion/webhook)
+     4. Salva resultado em ia_acoes { status: 'concluida' }
+     5. Se pergunta/comando → envia relatorio de volta ao remetente
+     6. Se delegar_para → cria novas ia_acoes para outros agentes
+
+FLUXO OUTBOUND (agente decide chamar API externa):
+  Gemini retorna:
+  {
+    "resposta": "Email enviado!",
+    "api_calls": [
+      { "integration": "slack", "action": "send_message",
+        "params": { "channel": "#vendas", "message": "Novo lead captado!" } }
+    ]
+  }
+  → EcosystemEngine._executeTools() executa o POST para Slack API
+  → resultado salvo em ia_acoes.resultado.tool_results
+
+MEMÓRIA COMPARTILHADA:
+  ia_memorias: privada (só o agente), equipe (todos da empresa), global (idem)
+  Injetada no system_prompt antes de cada chamada ao Gemini
+  Agente pode pedir para salvar via "salvar_como_memoria": true na resposta
+
+ZEUS 24/7:
+  pg_cron a cada 2 min → chama zeus-scheduler Edge Function → processa fila do Zeus
+  Funciona mesmo com todos os browsers fechados
+
+================================================================================
+7. DEPENDÊNCIAS E CONFIGURAÇÃO
+================================================================================
+
+.env (Vite):
+  VITE_SUPABASE_URL=...
+  VITE_SUPABASE_ANON_KEY=...
+  VITE_GEMINI_KEY=...  (chave global, agentes podem ter a própria)
+
+Supabase Edge Functions env:
+  SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (automáticos)
+  GEMINI_KEY (para zeus-scheduler)
+
+pg_cron job ativo:
+  jobid: 1 | */2 * * * * | zeus-scheduler via net.http_post
+
+================================================================================
+8. PADRÕES E CONVENÇÕES DO PROJETO
+================================================================================
+
+- TypeScript strict (noUnusedLocals) — NÃO deixar variáveis privadas sem uso
+- Tailwind com classe "brand-" para cor primária (azul-roxo)
+- Supabase client: import { supabase } from '../lib/supabase'
+- Componentes em PascalCase, hooks em camelCase com prefixo "use"
+- Sem axios — usar fetch nativo
+- AbortSignal.timeout(10_000) em todas as chamadas HTTP a APIs externas
+- Falhas em tool calls devem ser capturadas individualmente (não abortar a ação inteira)
+- Otimistic lock no processamento: UPDATE WHERE status='pendente' antes de processar
+- Realtime channels com nome único por instância: `ecosystem-${companyId}-${instanceId}`
+
+================================================================================
+9. TAREFAS PARA O NOVO CHAT (EM ORDEM)
+================================================================================
+
+1. Ler o arquivo src/modules/IAs/Config/IAModal.tsx (já mostrado acima, 300 linhas)
+
+2. Adicionar seção "Conexões API" no IAModal com:
+   - Toggle/expansão para: WhatsApp, Slack, Notion
+   - Lista editável de Webhooks de saída (botão +, campo nome+url+token, botão remover)
+   - Estado gerenciado localmente no componente
+   - Na hora de salvar: montar integracao_config.connections corretamente
+
+3. O handleSave deve ficar assim (pseudocódigo):
+   const integracao_config: Record<string, unknown> = {}
+   // preservar api key existente
+   if (apiKey) {
+     if (integTipo === 'gemini') integracao_config.gemini_api_key = apiKey
+     else integracao_config.api_key = apiKey
+   } else if (agent?.integracao_config) {
+     const { connections: _c, ...rest } = agent.integracao_config as any
+     Object.assign(integracao_config, rest)
+   }
+   // adicionar connections se houver alguma
+   const conn: Record<string, unknown> = {}
+   if (waPhoneId && waToken) conn.whatsapp = { phone_number_id: waPhoneId, access_token: waToken }
+   if (slackToken) conn.slack = { bot_token: slackToken, default_channel: slackChannel || '#geral' }
+   if (notionKey) conn.notion = { api_key: notionKey, default_database_id: notionDbId || undefined }
+   if (webhooks.length > 0) conn.webhook_out = webhooks
+   if (Object.keys(conn).length > 0) integracao_config.connections = conn
+   else if ((agent?.integracao_config as any)?.connections) {
+     integracao_config.connections = (agent.integracao_config as any).connections
+   }
+
+4. Após implementar o IAModal, fazer commit:
+   git add src/lib/ecosystem/EcosystemEngine.ts
+   git add supabase/functions/api-webhook/index.ts
+   git add src/modules/IAs/Config/IAModal.tsx
+   git commit -m "feat: API integration layer — tool executor, inbound webhook, multi-service connections UI"
+   git push -u origin claude/fix-organograma-toggle-EpEMs
+
+5. OPCIONALMENTE: Deploy da api-webhook Edge Function via Supabase MCP:
+   Tool: mcp__e706f64a...deploy_edge_function
+   params: { slug: "api-webhook", files: [{ name: "index.ts", content: <conteúdo do arquivo> }] }
+
+================================================================================
+10. CONTEÚDO DOS ARQUIVOS CRIADOS/MODIFICADOS NESTA SESSÃO
+================================================================================
+
+--- supabase/functions/api-webhook/index.ts (CRIADO, precisa deploy) ---
+
+import { serve }        from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const CORS = {
+  'Access-Control-Allow-Origin':  '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-agent-id, x-company-id, x-source, x-priority',
+}
+
+serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Método não permitido. Use POST.' }), {
+      status: 405, headers: { ...CORS, 'Content-Type': 'application/json' },
+    })
+  }
+  try {
+    const url       = new URL(req.url)
+    const agentId   = url.searchParams.get('agent_id')   ?? req.headers.get('x-agent-id')
+    const companyId = url.searchParams.get('company_id') ?? req.headers.get('x-company-id')
+    const source    = url.searchParams.get('source')     ?? req.headers.get('x-source') ?? 'webhook'
+    const priority  = url.searchParams.get('priority')   ?? req.headers.get('x-priority') ?? 'normal'
+
+    if (!agentId || !companyId) {
+      return new Response(
+        JSON.stringify({ error: 'agent_id e company_id são obrigatórios' }),
+        { status: 400, headers: { ...CORS, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    let payload: Record<string, unknown> = {}
+    const ct = req.headers.get('content-type') ?? ''
+    if (ct.includes('application/json')) {
+      payload = await req.json().catch(() => ({}))
+    } else if (ct.includes('application/x-www-form-urlencoded')) {
+      const text = await req.text()
+      new URLSearchParams(text).forEach((v, k) => { payload[k] = v })
+    }
+
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    )
+
+    const { data, error } = await supabase
+      .from('ia_acoes')
+      .insert({
+        company_id:    companyId,
+        de_agent_id:   null,
+        para_agent_id: agentId,
+        tipo:          'comando',
+        prioridade:    ['baixa', 'normal', 'alta', 'urgente'].includes(priority) ? priority : 'normal',
+        payload:       { source, ...payload, _webhook_received_at: new Date().toISOString() },
+        executar_apos: new Date().toISOString(),
+        expira_em:     new Date(Date.now() + 7 * 86_400_000).toISOString(),
+      })
+      .select('id')
+      .single()
+
+    if (error) throw new Error(error.message)
+
+    return new Response(
+      JSON.stringify({ ok: true, acao_id: data.id, agent_id: agentId, source }),
+      { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } }
+    )
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return new Response(
+      JSON.stringify({ error: msg }),
+      { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } }
+    )
+  }
+})
+
+--- (fim api-webhook/index.ts) ---
+
+================================================================================
+FIM DO HANDOFF
+================================================================================
