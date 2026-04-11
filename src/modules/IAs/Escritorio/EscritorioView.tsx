@@ -131,7 +131,7 @@ export default function EscritorioView({
   const cursor = placingType ? 'crosshair' : 'grab'
 
   return (
-    <div className="relative flex flex-col w-full h-full overflow-hidden bg-gray-950">
+    <div className="relative flex flex-col w-full flex-1 overflow-hidden bg-gray-950">
       {/* ── Toolbar ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900 border-b border-gray-800 flex-shrink-0 z-10 gap-2">
         {/* Layout selector */}

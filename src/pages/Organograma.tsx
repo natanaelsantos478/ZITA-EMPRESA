@@ -16,36 +16,53 @@ import ErrorBoundary from '../components/Layout/ErrorBoundary'
 type ViewMode = 'canvas' | 'retro' | 'moderno' | 'profissional' | '3d'
 
 const VIEWS: { mode: ViewMode; label: string }[] = [
-  { mode: 'canvas',      label: 'Canvas'       },
-  { mode: 'retro',       label: '🪵 Retrô'     },
-  { mode: 'moderno',     label: '🏢 Moderno'   },
-  { mode: 'profissional',label: '⬛ Profissional'},
-  { mode: '3d',          label: '3D'           },
+  { mode: 'canvas',       label: 'Canvas'        },
+  { mode: 'retro',        label: '🪵 Retrô'      },
+  { mode: 'moderno',      label: '🏢 Moderno'    },
+  { mode: 'profissional', label: '⬛ Profissional' },
+  { mode: '3d',           label: '3D'            },
 ]
 
+// Wrap around any view component to guarantee it fills the container
+// regardless of h-full CSS chain issues in different browsers
+function ViewSlot({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <ErrorBoundary>
+        {children}
+      </ErrorBoundary>
+    </div>
+  )
+}
+
 function resolveInitialView(): ViewMode {
-  const saved = localStorage.getItem('zita_view_mode') as ViewMode | null
+  const saved = localStorage.getItem('zita_view_mode')
   const valid: ViewMode[] = ['canvas', 'retro', 'moderno', 'profissional', '3d']
-  // '2d' was the old key — migrate to 'profissional'
-  if (saved === ('2d' as string)) return 'profissional'
-  return valid.includes(saved!) ? saved! : 'profissional'
+  if (saved === '2d') return 'profissional'
+  return valid.includes(saved as ViewMode) ? (saved as ViewMode) : 'profissional'
 }
 
 export default function Organograma() {
   const { companyId } = useAuth()
   const { agents, loading } = useAgentStatus()
 
-  const [view, setView] = useState<ViewMode>(resolveInitialView)
+  const [view, setView]               = useState<ViewMode>(resolveInitialView)
   const [selectedAgent, setSelectedAgent] = useState<IaAgent | null>(null)
   const [chatAgent, setChatAgent]         = useState<IaAgent | null>(null)
   const [tarefasCounts, setTarefasCounts] = useState<Record<string, number>>({})
 
   useEffect(() => {
     if (!companyId || agents.length === 0) return
-    supabase.from('ia_tarefas').select('agent_id').eq('company_id', companyId).eq('status', 'em_execucao')
+    supabase
+      .from('ia_tarefas')
+      .select('agent_id')
+      .eq('company_id', companyId)
+      .eq('status', 'em_execucao')
       .then(({ data }) => {
         const counts: Record<string, number> = {}
-        data?.forEach((t: { agent_id: string }) => { counts[t.agent_id] = (counts[t.agent_id] ?? 0) + 1 })
+        data?.forEach((t: { agent_id: string }) => {
+          counts[t.agent_id] = (counts[t.agent_id] ?? 0) + 1
+        })
         setTarefasCounts(counts)
       })
   }, [companyId, agents])
@@ -65,7 +82,9 @@ export default function Organograma() {
   )
 
   const handleChangeView = useCallback((m: ViewMode) => {
-    setView(m); localStorage.setItem('zita_view_mode', m); setSelectedAgent(null)
+    setView(m)
+    localStorage.setItem('zita_view_mode', m)
+    setSelectedAgent(null)
   }, [])
 
   const handleSelect = useCallback((a: IaAgent) => setSelectedAgent(a), [])
@@ -79,26 +98,24 @@ export default function Organograma() {
     )
   }
 
-  const isCanvas  = view === 'canvas'
-  const isRetro   = view === 'retro'
-  const isModerno = view === 'moderno'
-  const isFlat    = view === 'profissional'
-  const is3D      = view === '3d'
-
   return (
     <div className="flex flex-col h-[calc(100vh-56px)]">
-      {/* View toggle */}
+
+      {/* ── View toggle ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-5 py-2.5 border-b border-gray-800 bg-gray-900 flex-shrink-0">
         <span className="text-xs text-gray-600">
           {agents.length} agente{agents.length !== 1 ? 's' : ''}
         </span>
+
         <div className="flex items-center bg-gray-800 border border-gray-700 rounded-lg p-0.5 gap-0.5">
           {VIEWS.map(({ mode, label }) => (
             <button
               key={mode}
               onClick={() => handleChangeView(mode)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                view === mode ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-400 hover:text-white hover:bg-gray-700'
+                view === mode
+                  ? 'bg-brand-600 text-white shadow-sm'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-700'
               }`}
             >
               {mode === 'canvas' && <LayoutTemplate className="w-3.5 h-3.5" />}
@@ -107,48 +124,60 @@ export default function Organograma() {
             </button>
           ))}
         </div>
+
         <div className="w-24" />
       </div>
 
-      {/* Content */}
+      {/* ── Content ──────────────────────────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        <div className="flex-1 min-h-0 overflow-hidden relative">
 
-          {isCanvas && <CanvasView />}
+        {/* Main view area — position:relative is the containing block for ViewSlot */}
+        <div className="flex-1 min-h-0 overflow-hidden" style={{ position: 'relative' }}>
 
-          {/* Pixel-art canvas views — retro e moderno */}
-          {(isRetro || isModerno) && (
-            <EscritorioView
-              key={view}
-              initialTheme={view === 'retro' ? 'retro' : 'moderno'}
-              agents={agents}
-              tarefasCounts={tarefasCounts}
-              onSelectAgent={handleSelect}
-              onChat={handleChat}
-            />
+          {view === 'canvas' && (
+            <ViewSlot>
+              <CanvasView />
+            </ViewSlot>
           )}
 
-          {/* Flat DOM view — profissional */}
-          {isFlat && (
-            companyId
-              ? <ErrorBoundary key={companyId}><Escritorio2D key={companyId} /></ErrorBoundary>
-              : <div className="flex items-center justify-center h-full">
-                  <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-                </div>
+          {(view === 'retro' || view === 'moderno') && (
+            <ViewSlot>
+              <EscritorioView
+                key={view}
+                initialTheme={view === 'retro' ? 'retro' : 'moderno'}
+                agents={agents}
+                tarefasCounts={tarefasCounts}
+                onSelectAgent={handleSelect}
+                onChat={handleChat}
+              />
+            </ViewSlot>
           )}
 
-          {is3D && (
-            <Office3DView
-              agents={agents}
-              tarefasCounts={tarefasCounts}
-              onSelectAgent={handleSelect}
-              onChat={handleChat}
-            />
+          {view === 'profissional' && (
+            <ViewSlot>
+              {companyId
+                ? <Escritorio2D key={companyId} />
+                : <div className="flex items-center justify-center flex-1">
+                    <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+              }
+            </ViewSlot>
+          )}
+
+          {view === '3d' && (
+            <ViewSlot>
+              <Office3DView
+                agents={agents}
+                tarefasCounts={tarefasCounts}
+                onSelectAgent={handleSelect}
+                onChat={handleChat}
+              />
+            </ViewSlot>
           )}
         </div>
 
         {/* Side panel — 3D only */}
-        {is3D && selectedAgent && (
+        {view === '3d' && selectedAgent && (
           <ControleIAPanel
             agent={selectedAgent}
             onClose={() => setSelectedAgent(null)}
