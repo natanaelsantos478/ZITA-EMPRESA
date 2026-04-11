@@ -6,7 +6,7 @@ import { useRealtime } from '../hooks/useRealtime'
 import { supabase } from '../lib/supabase'
 import type { IaAgent, IaTarefa } from '../types'
 import CanvasView from '../modules/IAs/Organograma/CanvasView'
-import EscritorioView from '../modules/IAs/Escritorio/EscritorioView'
+import Escritorio2D from '../modules/IAs/Escritorio2D/Escritorio2D'
 import Office3DView from '../modules/IAs/Organograma/Office3DView'
 import ControleIAPanel from '../modules/IAs/ControleIA/ControleIAPanel'
 import ChatIA from '../modules/IAs/Chat/ChatIA'
@@ -97,15 +97,7 @@ export default function Organograma() {
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className="flex-1 min-h-0 overflow-hidden">
           {view === 'canvas' && <CanvasView />}
-          {view === '2d' && (
-            <EscritorioView
-              agents={agents}
-              tarefasCounts={tarefasCounts}
-              onSelectAgent={handleSelect}
-              onChat={handleChat}
-              selectedId={selectedAgent?.id}
-            />
-          )}
+          {view === '2d' && <Escritorio2D />}
           {view === '3d' && (
             <Office3DView
               agents={agents}
@@ -116,8 +108,8 @@ export default function Organograma() {
           )}
         </div>
 
-        {/* Side panel — 2D/3D only (canvas manages its own) */}
-        {view !== 'canvas' && selectedAgent && (
+        {/* Side panel — 3D only (canvas e 2D gerenciam o próprio painel) */}
+        {view === '3d' && selectedAgent && (
           <ControleIAPanel
             agent={selectedAgent}
             onClose={() => setSelectedAgent(null)}
