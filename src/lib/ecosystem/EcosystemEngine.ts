@@ -2,8 +2,8 @@
  * EcosystemEngine.ts
  *
  * Orquestrador client-side do ecossistema de IAs.
- * Processa a fila ia_acoes com Gemini, compartilha memórias,
- * respeita hierarquia e delega entre agentes.
+ * Processa a fila ia_acoes com Gemini, executa chamadas a APIs externas,
+ * compartilha memórias e respeita hierarquia.
  */
 import { supabase } from '../supabase'
 import type { IaAgent } from '../../types'
@@ -51,7 +51,15 @@ export interface IaMemoria {
   updated_at:    string
 }
 
-// Schema que o Gemini deve retornar (JSON mode)
+/** Uma chamada a API externa que o Gemini decidiu executar */
+export interface IntegrationCall {
+  integration: string                  // 'whatsapp' | 'slack' | 'notion' | 'webhook_out' | 'http'
+  action:      string                  // 'send_message' | 'post' | 'create_page' | etc.
+  params:      Record<string, unknown>
+  webhook_id?: string                  // para webhook_out com múltiplos webhooks
+}
+
+/** Schema que o Gemini deve retornar (JSON mode) */
 interface GeminiResponse {
   resposta:             string
   raciocinio?:          string
@@ -62,6 +70,16 @@ interface GeminiResponse {
   importancia_memoria?: number
   delegar_para?:        Array<{ agent_id: string; pergunta: string; prioridade?: AcaoPrio }>
   status_sugerido?:     IaAgent['status']
+  /** Chamadas a APIs externas que devem ser executadas após a resposta */
+  api_calls?:           IntegrationCall[]
+}
+
+/** Configurações de conexões externas dentro de integracao_config */
+interface AgentConnections {
+  whatsapp?:   { phone_number_id: string; access_token: string }
+  slack?:      { bot_token: string; default_channel: string }
+  notion?:     { api_key: string; default_database_id?: string }
+  webhook_out?: Array<{ id: string; nome: string; url: string; token?: string }>
 }
 
 // ── Engine ────────────────────────────────────────────────────────────────────
@@ -119,9 +137,14 @@ export class EcosystemEngine {
     try {
       const result = await this._callGemini(acao, target, agentMap)
 
+      // Execute any external API calls the AI decided to make
+      const toolResults = result.api_calls && result.api_calls.length > 0
+        ? await this._executeTools(result.api_calls, target)
+        : []
+
       await supabase.from('ia_acoes').update({
         status:        'concluida',
-        resultado:     result,
+        resultado:     { ...result, tool_results: toolResults },
         processada_at: new Date().toISOString(),
         updated_at:    new Date().toISOString(),
       }).eq('id', acao.id)
@@ -152,9 +175,10 @@ export class EcosystemEngine {
           tipo:          'relatorio',
           prioridade:    acao.prioridade,
           payload: {
-            resposta:     result.resposta,
-            de_acao_id:   acao.id,
+            resposta:      result.resposta,
+            de_acao_id:    acao.id,
             tipo_original: acao.tipo,
+            tool_results:  toolResults,
           },
         })
       }
@@ -168,9 +192,9 @@ export class EcosystemEngine {
             tipo:          'pergunta',
             prioridade:    d.prioridade ?? 'normal',
             payload: {
-              pergunta:             d.pergunta,
+              pergunta:              d.pergunta,
               responde_para_acao_id: acao.id,
-              contexto:             { origem: target.nome, acao_pai: acao.tipo },
+              contexto:              { origem: target.nome, acao_pai: acao.tipo },
             },
           })
         ))
@@ -196,6 +220,150 @@ export class EcosystemEngine {
     }
 
     this.inFlight.delete(acao.id)
+  }
+
+  // ── Tool execution ───────────────────────────────────────────────────────────
+
+  /** Executes all api_calls returned by Gemini. Each failure is caught individually. */
+  private async _executeTools(
+    calls:  IntegrationCall[],
+    agent:  IaAgent,
+  ): Promise<Array<{ integration: string; action: string; success: boolean; result?: unknown; error?: string }>> {
+    const results = []
+    for (const call of calls) {
+      try {
+        const result = await this._executeIntegration(call, agent)
+        results.push({ integration: call.integration, action: call.action, success: true, result })
+      } catch (err) {
+        results.push({ integration: call.integration, action: call.action, success: false, error: String(err) })
+      }
+    }
+    return results
+  }
+
+  /** Routes a single integration call to the correct executor */
+  private async _executeIntegration(call: IntegrationCall, agent: IaAgent): Promise<unknown> {
+    const cfg         = (agent.integracao_config ?? {}) as Record<string, unknown>
+    const connections = (cfg.connections ?? {}) as AgentConnections
+
+    switch (call.integration) {
+
+      // ── Webhook de saída genérico ───────────────────────────────────────────
+      case 'webhook_out': {
+        const webhooks = connections.webhook_out ?? []
+        const wh = call.webhook_id
+          ? webhooks.find(w => w.id === call.webhook_id)
+          : webhooks[0]
+        if (!wh) throw new Error('Nenhum webhook de saída configurado')
+
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (wh.token) headers['Authorization'] = `Bearer ${wh.token}`
+
+        const resp = await fetch(wh.url, {
+          method:  'POST',
+          headers,
+          body:    JSON.stringify({ ...call.params, _agent: agent.nome, _source: 'zita' }),
+          signal:  AbortSignal.timeout(10_000),
+        })
+        return { status: resp.status, ok: resp.ok, webhook: wh.nome }
+      }
+
+      // ── WhatsApp Cloud API ──────────────────────────────────────────────────
+      case 'whatsapp': {
+        const wa = connections.whatsapp
+        if (!wa) throw new Error('WhatsApp não configurado neste agente')
+        if (call.action === 'send_message') {
+          const resp = await fetch(
+            `https://graph.facebook.com/v19.0/${wa.phone_number_id}/messages`,
+            {
+              method:  'POST',
+              headers: { 'Authorization': `Bearer ${wa.access_token}`, 'Content-Type': 'application/json' },
+              body:    JSON.stringify({
+                messaging_product: 'whatsapp',
+                to:   call.params.to,
+                type: 'text',
+                text: { body: call.params.message },
+              }),
+              signal: AbortSignal.timeout(10_000),
+            }
+          )
+          if (!resp.ok) {
+            const txt = await resp.text()
+            throw new Error(`WhatsApp ${resp.status}: ${txt.slice(0, 200)}`)
+          }
+          return await resp.json()
+        }
+        throw new Error(`WhatsApp: ação '${call.action}' não suportada`)
+      }
+
+      // ── Slack ───────────────────────────────────────────────────────────────
+      case 'slack': {
+        const sl = connections.slack
+        if (!sl) throw new Error('Slack não configurado neste agente')
+        if (call.action === 'send_message') {
+          const resp = await fetch('https://slack.com/api/chat.postMessage', {
+            method:  'POST',
+            headers: { 'Authorization': `Bearer ${sl.bot_token}`, 'Content-Type': 'application/json' },
+            body:    JSON.stringify({
+              channel: (call.params.channel as string | undefined) ?? sl.default_channel,
+              text:    call.params.message,
+            }),
+            signal: AbortSignal.timeout(10_000),
+          })
+          return await resp.json()
+        }
+        throw new Error(`Slack: ação '${call.action}' não suportada`)
+      }
+
+      // ── Notion ──────────────────────────────────────────────────────────────
+      case 'notion': {
+        const no = connections.notion
+        if (!no) throw new Error('Notion não configurado neste agente')
+        if (call.action === 'create_page') {
+          const dbId = (call.params.database_id as string | undefined) ?? no.default_database_id
+          if (!dbId) throw new Error('Notion: database_id não informado')
+          const resp = await fetch('https://api.notion.com/v1/pages', {
+            method:  'POST',
+            headers: {
+              'Authorization':  `Bearer ${no.api_key}`,
+              'Notion-Version': '2022-06-28',
+              'Content-Type':   'application/json',
+            },
+            body: JSON.stringify({
+              parent:     { database_id: dbId },
+              properties: call.params.properties ?? {
+                title: { title: [{ text: { content: (call.params.title as string) ?? 'Nova entrada' } }] },
+              },
+            }),
+            signal: AbortSignal.timeout(10_000),
+          })
+          if (!resp.ok) {
+            const txt = await resp.text()
+            throw new Error(`Notion ${resp.status}: ${txt.slice(0, 200)}`)
+          }
+          return await resp.json()
+        }
+        throw new Error(`Notion: ação '${call.action}' não suportada`)
+      }
+
+      // ── HTTP genérico ───────────────────────────────────────────────────────
+      case 'http': {
+        const method = (call.params.method as string | undefined) ?? 'POST'
+        const url    = call.params.url as string | undefined
+        if (!url) throw new Error('http: "url" é obrigatório em params')
+        const resp = await fetch(url, {
+          method,
+          headers: (call.params.headers as Record<string, string> | undefined)
+            ?? { 'Content-Type': 'application/json' },
+          body: method !== 'GET' ? JSON.stringify(call.params.body ?? call.params) : undefined,
+          signal: AbortSignal.timeout(10_000),
+        })
+        return { status: resp.status, ok: resp.ok }
+      }
+
+      default:
+        throw new Error(`Integração '${call.integration}' não implementada`)
+    }
   }
 
   // ── Gemini call ───────────────────────────────────────────────────────────────
@@ -227,8 +395,8 @@ export class EcosystemEngine {
           system_instruction: { parts: [{ text: systemPrompt }] },
           contents: [{ role: 'user', parts: [{ text: userMessage }] }],
           generationConfig: {
-            temperature:     agent.personalidade?.temperatura    ?? 0.7,
-            maxOutputTokens: agent.personalidade?.max_tokens     ?? 2000,
+            temperature:      agent.personalidade?.temperatura    ?? 0.7,
+            maxOutputTokens:  agent.personalidade?.max_tokens     ?? 2000,
             responseMimeType: 'application/json',
           },
         }),
@@ -257,10 +425,10 @@ export class EcosystemEngine {
     agentMap: Map<string, IaAgent>,
     memories: IaMemoria[],
   ): string {
-    const all        = Array.from(agentMap.values())
-    const zeus       = all.find(a => a.tipo === 'zeus')
-    const superior   = agent.organograma_parent_id ? agentMap.get(agent.organograma_parent_id) : null
-    const reports    = all.filter(a => a.organograma_parent_id === agent.id)
+    const all      = Array.from(agentMap.values())
+    const zeus     = all.find(a => a.tipo === 'zeus')
+    const superior = agent.organograma_parent_id ? agentMap.get(agent.organograma_parent_id) : null
+    const reports  = all.filter(a => a.organograma_parent_id === agent.id)
 
     const agentList = all.map(a =>
       `  • ${a.nome} [${a.tipo}][${a.status}]${a.funcao ? ' — ' + a.funcao : ''} (id: ${a.id})`
@@ -269,6 +437,8 @@ export class EcosystemEngine {
     const memList = memories.length > 0
       ? memories.map(m => `  • [${m.tipo}] ${m.titulo ?? ''}: ${m.conteudo.slice(0, 200)}`).join('\n')
       : '  (nenhuma memória ainda)'
+
+    const integList = this._buildIntegrationList(agent)
 
     return `Você é ${agent.nome}, uma IA do ecossistema ZITA.
 Tipo: ${agent.tipo} | Função: ${agent.funcao ?? 'Geral'} | Status: ${agent.status}
@@ -282,13 +452,14 @@ ${agentList}
 
 ═══ SUAS MEMÓRIAS (use para contextualizar respostas) ═══
 ${memList}
-
+${integList}
 ═══ REGRAS DO ECOSSISTEMA ═══
 1. Você PODE e DEVE delegar para outros agentes quando adequado
 2. Use o campo "delegar_para" para solicitar ajuda de outros agentes — informe o agent_id exato
 3. Memorize informações importantes — elas ficarão disponíveis nas próximas interações
 4. Respeite a hierarquia: Zeus ordena, você executa e reporta
-5. Sempre seja direto e útil
+5. Use "api_calls" para executar ações reais em sistemas externos quando necessário
+6. Sempre seja direto e útil
 
 ═══ RESPONDA SEMPRE EM JSON VÁLIDO com este schema ═══
 {
@@ -302,8 +473,38 @@ ${memList}
   "delegar_para": [
     { "agent_id": "uuid-exato", "pergunta": "o que perguntar", "prioridade": "normal" }
   ],
-  "status_sugerido": "online"
+  "status_sugerido": "online",
+  "api_calls": [
+    { "integration": "whatsapp|slack|notion|webhook_out|http", "action": "send_message|post|create_page|...", "params": {}, "webhook_id": "opcional" }
+  ]
 }`
+  }
+
+  /** Monta a lista de integrações disponíveis para incluir no prompt do sistema */
+  private _buildIntegrationList(agent: IaAgent): string {
+    const cfg         = (agent.integracao_config ?? {}) as Record<string, unknown>
+    const connections = (cfg.connections ?? {}) as AgentConnections
+
+    const lines: string[] = []
+
+    if (connections.whatsapp) {
+      lines.push('  • whatsapp → send_message(to: "+55...", message: "texto")')
+    }
+    if (connections.slack) {
+      lines.push(`  • slack → send_message(message: "texto"${connections.slack.default_channel ? `, channel?: "${connections.slack.default_channel}"` : ''})`)
+    }
+    if (connections.notion) {
+      lines.push('  • notion → create_page(title: "título", database_id?: "uuid", properties?: {...})')
+    }
+    if (connections.webhook_out?.length) {
+      connections.webhook_out.forEach(w => {
+        lines.push(`  • webhook_out → post(webhook_id: "${w.id}", ...params) — ${w.nome}`)
+      })
+    }
+
+    if (lines.length === 0) return ''
+
+    return `\n═══ SUAS INTEGRAÇÕES DISPONÍVEIS (use api_calls para acionar) ═══\n${lines.join('\n')}\n`
   }
 
   private _buildUserMessage(acao: IaAcao, agentMap: Map<string, IaAgent>): string {
@@ -317,7 +518,7 @@ ${memList}
         }`
 
       case 'comando':
-        return `${de} enviou um comando:\n\n"${acao.payload.comando}"\n\n${
+        return `${de} enviou um comando:\n\n"${acao.payload.comando ?? acao.payload.mensagem ?? JSON.stringify(acao.payload)}"\n\n${
           acao.payload.contexto ? 'Detalhes: ' + JSON.stringify(acao.payload.contexto) : ''
         }\n\nExecute e relate o resultado.`
 
@@ -331,7 +532,7 @@ ${memList}
 
       case 'memoria':
         return `${de} compartilhou uma memória com você:\n\n"${acao.payload.conteudo}"\nTags: ${
-          (acao.payload.tags as string[] ?? []).join(', ')
+          ((acao.payload.tags as string[]) ?? []).join(', ')
         }\n\nProcesse e confirme o recebimento.`
 
       case 'broadcast':
@@ -359,14 +560,14 @@ ${memList}
   }
 
   async saveMemoria(params: {
-    agent_id:       string
-    tipo?:          MemoriaTipo
-    titulo?:        string
-    conteudo:       string
-    tags?:          string[]
-    visibilidade?:  MemoriaViz
-    importancia?:   number
-    expira_em?:     Date
+    agent_id:        string
+    tipo?:           MemoriaTipo
+    titulo?:         string
+    conteudo:        string
+    tags?:           string[]
+    visibilidade?:   MemoriaViz
+    importancia?:    number
+    expira_em?:      Date
     origem_acao_id?: string
   }): Promise<IaMemoria | null> {
     const { data } = await supabase
