@@ -6,6 +6,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Organograma from './pages/Organograma'
 import Configuracoes from './pages/Configuracoes'
+import Gestor from './pages/Gestor'
 import NotFound from './pages/NotFound'
 
 export default function App() {
@@ -60,6 +61,16 @@ export default function App() {
                 <AppLayout>
                   <Configuracoes />
                 </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Gestor — acesso exclusivo para role 'gestor' */}
+          <Route
+            path="/gestor"
+            element={
+              <ProtectedRoute requireGestor>
+                <Gestor />
               </ProtectedRoute>
             }
           />
