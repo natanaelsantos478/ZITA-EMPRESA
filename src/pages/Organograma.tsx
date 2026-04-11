@@ -1,8 +1,9 @@
 import { useState, useCallback, useEffect } from 'react'
-import { LayoutTemplate, Box } from 'lucide-react'
+import { LayoutTemplate, Box, Brain } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useAgentStatus } from '../hooks/useAgentStatus'
 import { useRealtime } from '../hooks/useRealtime'
+import { useEcosystem } from '../hooks/useEcosystem'
 import { supabase } from '../lib/supabase'
 import type { IaAgent, IaTarefa } from '../types'
 import CanvasView from '../modules/IAs/Organograma/CanvasView'
@@ -11,6 +12,7 @@ import Escritorio2D from '../modules/IAs/Escritorio2D/Escritorio2D'
 import Office3DView from '../modules/IAs/Organograma/Office3DView'
 import ControleIAPanel from '../modules/IAs/ControleIA/ControleIAPanel'
 import ChatIA from '../modules/IAs/Chat/ChatIA'
+import EcosystemPanel from '../modules/IAs/Ecosystem/EcosystemPanel'
 import ErrorBoundary from '../components/Layout/ErrorBoundary'
 
 type ViewMode = 'canvas' | 'retro' | 'moderno' | 'profissional' | '3d'
@@ -50,6 +52,9 @@ export default function Organograma() {
   const [selectedAgent, setSelectedAgent] = useState<IaAgent | null>(null)
   const [chatAgent,     setChatAgent]     = useState<IaAgent | null>(null)
   const [tarefasCounts, setTarefasCounts] = useState<Record<string, number>>({})
+  const [showEcosystem, setShowEcosystem] = useState(false)
+
+  const ecosystem = useEcosystem(agents)
 
   useEffect(() => {
     if (!companyId || agents.length === 0) return
@@ -103,9 +108,18 @@ export default function Organograma() {
 
       {/* ── View toggle ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-5 py-2.5 border-b border-gray-800 bg-gray-900 flex-shrink-0">
-        <span className="text-xs text-gray-600">
-          {agents.length} agente{agents.length !== 1 ? 's' : ''}
-        </span>
+        <button
+          onClick={() => setShowEcosystem(v => !v)}
+          className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+        >
+          <Brain className="w-3.5 h-3.5" />
+          <span>{agents.length} agente{agents.length !== 1 ? 's' : ''}</span>
+          {ecosystem.state.pendingCount > 0 && (
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 text-black text-xs rounded-full flex items-center justify-center font-bold leading-none">
+              {ecosystem.state.pendingCount}
+            </span>
+          )}
+        </button>
 
         <div className="flex items-center bg-gray-800 border border-gray-700 rounded-lg p-0.5 gap-0.5">
           {VIEWS.map(({ mode, label }) => (
@@ -192,6 +206,20 @@ export default function Organograma() {
       </div>
 
       {chatAgent && <ChatIA agent={chatAgent} onClose={() => setChatAgent(null)} />}
+
+      {showEcosystem && (
+        <EcosystemPanel
+          agents={agents}
+          onClose={() => setShowEcosystem(false)}
+          sendAction={ecosystem.sendAction}
+          zeusBroadcast={ecosystem.zeusBroadcast}
+          fetchHistory={ecosystem.fetchHistory}
+          fetchMemories={ecosystem.fetchMemories}
+          saveMemoria={ecosystem.saveMemoria}
+          pendingCount={ecosystem.state.pendingCount}
+          isProcessing={ecosystem.state.isProcessing}
+        />
+      )}
     </div>
   )
 }

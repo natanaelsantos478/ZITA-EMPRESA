@@ -1,4 +1,9 @@
-export type CompanyStatus = 'ativo' | 'suspenso' | 'cancelado'
+export type CompanyStatus    = 'ativo' | 'suspenso' | 'cancelado'
+export type AcaoTipo        = 'pergunta' | 'comando' | 'delegacao' | 'relatorio' | 'memoria' | 'broadcast'
+export type AcaoStatus      = 'pendente' | 'em_processamento' | 'concluida' | 'erro' | 'expirada' | 'cancelada'
+export type AcaoPrioridade  = 'baixa' | 'normal' | 'alta' | 'urgente'
+export type MemoriaViz      = 'privada' | 'equipe' | 'global'
+export type MemoriaTipo     = 'fato' | 'contexto' | 'instrucao' | 'resultado' | 'aprendizado' | 'regra'
 export type UserRole = 'owner' | 'admin' | 'operator' | 'viewer'
 export type AgentTipo = 'zeus' | 'subordinada' | 'especialista'
 export type AgentStatus = 'online' | 'ocupada' | 'aguardando' | 'offline' | 'erro' | 'pausada'
@@ -137,6 +142,44 @@ export interface AuditLog {
   created_at: string
 }
 
+// ---- Tabela: ia_memorias ----
+export interface IaMemoria {
+  id:              string
+  company_id:      string
+  agent_id:        string
+  tipo:            MemoriaTipo
+  titulo?:         string
+  conteudo:        string
+  tags:            string[]
+  visibilidade:    MemoriaViz
+  importancia:     number
+  origem_acao_id?: string
+  expira_em?:      string
+  created_at:      string
+  updated_at:      string
+}
+
+// ---- Tabela: ia_acoes ----
+export interface IaAcao {
+  id:             string
+  company_id:     string
+  de_agent_id:    string | null
+  para_agent_id:  string
+  tipo:           AcaoTipo
+  prioridade:     AcaoPrioridade
+  payload:        Record<string, unknown>
+  resultado?:     Record<string, unknown>
+  status:         AcaoStatus
+  tentativas:     number
+  max_tentativas: number
+  executar_apos:  string
+  expira_em:      string
+  processada_at?: string
+  erro_mensagem?: string
+  created_at:     string
+  updated_at:     string
+}
+
 // ---- Database shape para Supabase client ----
 export interface Database {
   public: {
@@ -144,8 +187,10 @@ export interface Database {
       companies: { Row: Company; Insert: Partial<Company>; Update: Partial<Company> }
       profiles: { Row: Profile; Insert: Partial<Profile>; Update: Partial<Profile> }
       ia_agents: { Row: IaAgent; Insert: Partial<IaAgent>; Update: Partial<IaAgent> }
-      ia_tarefas: { Row: IaTarefa; Insert: Partial<IaTarefa>; Update: Partial<IaTarefa> }
-      audit_log: { Row: AuditLog; Insert: Partial<AuditLog>; Update: Partial<AuditLog> }
+      ia_tarefas:  { Row: IaTarefa;  Insert: Partial<IaTarefa>;  Update: Partial<IaTarefa>  }
+      ia_memorias: { Row: IaMemoria; Insert: Partial<IaMemoria>; Update: Partial<IaMemoria> }
+      ia_acoes:    { Row: IaAcao;    Insert: Partial<IaAcao>;    Update: Partial<IaAcao>    }
+      audit_log:   { Row: AuditLog;  Insert: Partial<AuditLog>;  Update: Partial<AuditLog>  }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
