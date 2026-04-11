@@ -3,10 +3,11 @@
  */
 import * as THREE from 'three'
 
-const SPEED       = 6
-const SPRINT_MULT = 2.2
-const EYE_HEIGHT  = 1.65
-const DAMPING     = 0.82
+const SPEED       = 12       // increased for snappier movement
+const SPRINT_MULT = 2.8      // Shift to sprint
+const EYE_HEIGHT  = 1.7
+const DAMPING     = 0.78     // slightly less damp = crisper
+const MOUSE_SENS  = 0.0022
 // Bounds match the expanded office (60x18 centered at x=2, z=-2)
 const BOUND_X     = 29
 const BOUND_Z_MIN = -10.5
@@ -34,8 +35,8 @@ export class FPSControls {
     this._onKey   = (e: KeyboardEvent) => { this.keys[e.code] = e.type === 'keydown' }
     this._onMouse = (e: MouseEvent) => {
       if (!this.locked) return
-      this.yaw   -= e.movementX * 0.002
-      this.pitch  = Math.max(-Math.PI/2.2, Math.min(Math.PI/2.2, this.pitch - e.movementY * 0.002))
+      this.yaw   -= e.movementX * MOUSE_SENS
+      this.pitch  = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, this.pitch - e.movementY * MOUSE_SENS))
     }
 
     canvas.addEventListener('click', () => canvas.requestPointerLock())
@@ -47,8 +48,22 @@ export class FPSControls {
 
   isLocked(): boolean { return this.locked }
 
+  /** Returns true if any movement key is held */
+  isMoving(): boolean {
+    return !!(
+      this.keys['KeyW'] || this.keys['KeyS'] ||
+      this.keys['KeyA'] || this.keys['KeyD'] ||
+      this.keys['ArrowUp'] || this.keys['ArrowDown'] ||
+      this.keys['ArrowLeft'] || this.keys['ArrowRight']
+    )
+  }
+
+  isSprinting(): boolean {
+    return !!(this.keys['ShiftLeft'] || this.keys['ShiftRight'])
+  }
+
   update(dt: number): void {
-    const sprint = this.keys['ShiftLeft'] || this.keys['ShiftRight']
+    const sprint = this.isSprinting()
     const speed  = sprint ? SPEED * SPRINT_MULT : SPEED
 
     const dir = new THREE.Vector3()

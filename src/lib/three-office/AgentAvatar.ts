@@ -1,21 +1,45 @@
 /**
- * AgentAvatar.ts — faithful TypeScript port of ai-office/js/avatar.js
- * Animated humanoid agent: idle bob, typing animation, HTML name tags, speech bubbles.
+ * AgentAvatar.ts — Game-quality animated humanoid agent with speech bubbles
  */
 import * as THREE from 'three'
 import type { IaAgent } from '../../types'
 import { DESK_POSITIONS } from './OfficeScene'
 
-// ─── Animation constants ──────────────────────────────────────────────────
-const IDLE_BOB_SPEED   = 1.4
-const IDLE_BOB_RANGE   = 0.018
-const ACTIVE_BOB_SPEED = 3.5
-const ACTIVE_BOB_RANGE = 0.04
-const TASK_MIN_MS      = 5000
-const TASK_MAX_MS      = 15000
-const SPEECH_DURATION  = 6000
+// ── Animation constants ────────────────────────────────────────────────────
+const IDLE_BOB_SPEED   = 1.2
+const IDLE_BOB_RANGE   = 0.015
+const ACTIVE_BOB_SPEED = 4.0
+const ACTIVE_BOB_RANGE = 0.045
+const TASK_MIN_MS      = 3000
+const TASK_MAX_MS      = 10000
+const SPEECH_DURATION  = 5500
 
-const TASK_MESSAGES = [
+const STATUS_MESSAGES: Record<string, string[]> = {
+  online: [
+    'Pronto para ajudar!',
+    'Todos os sistemas OK.',
+    'Aguardando tarefas...',
+    'Online e operacional.',
+  ],
+  ocupada: [
+    'Processando dados...',
+    'Analisando relatório...',
+    'Calculando métricas...',
+    'Tarefa em andamento...',
+    'Otimizando processo...',
+    'Gerando resposta...',
+  ],
+  aguardando: [
+    'Aguardando aprovação...',
+    'Na fila de execução.',
+    'Pronto quando precisar.',
+  ],
+  offline: ['Sistema offline.', 'Indisponível.'],
+  erro: ['Erro detectado!', 'Falha no processo!', 'Verificando logs...'],
+  pausada: ['Em pausa.', 'Pausado temporariamente.'],
+}
+
+const GENERIC_MESSAGES = [
   'Processando dados...',
   'Analisando relatório...',
   'Respondendo consulta...',
@@ -25,44 +49,57 @@ const TASK_MESSAGES = [
   'Calculando métricas...',
   'Sincronizando...',
   'Otimizando processo...',
+  'Analisando padrões...',
+  'Preparando relatório...',
+  'Checando dependências...',
+  'Validando resultado...',
 ]
 
-// ─── Color utilities ──────────────────────────────────────────────────────
-
+// ── Color helpers ──────────────────────────────────────────────────────────
 function hexStrToInt(hex: string): number {
   return parseInt(hex.replace('#', ''), 16)
 }
-
-function darken(hex: number, factor: number): number {
-  const r = ((hex >> 16) & 0xff) * factor
-  const g = ((hex >> 8)  & 0xff) * factor
-  const b = (hex          & 0xff) * factor
+function darken(hex: number, f: number): number {
+  const r = ((hex >> 16) & 0xff) * f
+  const g = ((hex >> 8)  & 0xff) * f
+  const b = (hex          & 0xff) * f
   return (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b)
 }
-
-function lighten(hex: number, factor: number): number {
-  const r = Math.min(255, ((hex >> 16) & 0xff) * factor)
-  const g = Math.min(255, ((hex >> 8)  & 0xff) * factor)
-  const b = Math.min(255, (hex          & 0xff) * factor)
+function lighten(hex: number, f: number): number {
+  const r = Math.min(255, ((hex >> 16) & 0xff) * f)
+  const g = Math.min(255, ((hex >> 8)  & 0xff) * f)
+  const b = Math.min(255, (hex          & 0xff) * f)
   return (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b)
 }
+function stdMat(color: number, roughness = 0.7, metalness = 0.0, emissive = 0, emissiveIntensity = 0): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ color, roughness, metalness })
+  if (emissive) { m.emissive.setHex(emissive); m.emissiveIntensity = emissiveIntensity }
+  return m
+}
 
-// ─── Avatar class ─────────────────────────────────────────────────────────
-
+// ── Avatar class ──────────────────────────────────────────────────────────
 export class AgentAvatar {
   readonly group:   THREE.Group
   readonly agentId: string
 
   private scene:   THREE.Scene
   private color:   number
+  private agentColor: string
   private _status: 'idle' | 'active' | 'done' = 'idle'
   private _meshes: THREE.Mesh[] = []
 
-  // Animation targets
-  private _body: THREE.Mesh | null = null
-  private _head: THREE.Mesh | null = null
-  private _armL: THREE.Mesh | null = null
-  private _armR: THREE.Mesh | null = null
+  // Body parts for animation
+  private _torso:  THREE.Mesh | null = null
+  private _head:   THREE.Mesh | null = null
+  private _armL:   THREE.Mesh | null = null
+  private _armR:   THREE.Mesh | null = null
+  private _legL:   THREE.Mesh | null = null
+  private _legR:   THREE.Mesh | null = null
+  private _neck:   THREE.Mesh | null = null
+  private _statusDot: THREE.Mesh | null = null
+
+  // Status dot glow animation
+  private _dotMat: THREE.MeshStandardMaterial | null = null
 
   // HTML overlays
   private _nameTagDiv!: HTMLDivElement
@@ -74,139 +111,226 @@ export class AgentAvatar {
   private _speechTimeout: ReturnType<typeof setTimeout> | null = null
   private _taskTimeout:   ReturnType<typeof setTimeout> | null = null
 
+  private _agentStatus: string
+
   constructor(scene: THREE.Scene, agent: IaAgent, index: number) {
-    this.scene   = scene
-    this.agentId = agent.id
-    this.color   = hexStrToInt(agent.cor_hex || '#4e5eff')
+    this.scene       = scene
+    this.agentId     = agent.id
+    this.color       = hexStrToInt(agent.cor_hex || '#4e5eff')
+    this.agentColor  = agent.cor_hex || '#4e5eff'
+    this._agentStatus = agent.status
 
     const deskPos = DESK_POSITIONS[index % DESK_POSITIONS.length]
 
     this.group = new THREE.Group()
-    this.group.position.set(deskPos.x, 0, deskPos.z + 0.5)
+    this.group.position.set(deskPos.x, 0, deskPos.z + 0.56)
     this.group.rotation.y = deskPos.ry + Math.PI
     scene.add(this.group)
 
-    this._buildBody(agent)
+    this._buildBody(agent, index)
     this._buildSpeechBubble()
     this._buildNameTag(agent)
     this._scheduleNextTask()
   }
 
-  // ─── Body construction ────────────────────────────────────────────────
+  // ── Body construction ────────────────────────────────────────────────────
 
-  private _buildBody(agent: IaAgent): void {
+  private _buildBody(agent: IaAgent, index: number): void {
     const c = this.color
+    const shirtCol  = darken(c, 0.6)
+    const pantsCol  = darken(c, 0.35)
+    const hairCol   = darken(c, 0.25)
+    const skinCol   = 0xffe0c8 + (index % 4) * 0x030100 // slight skin variation
 
-    const shirtMat = new THREE.MeshLambertMaterial({ color: darken(c, 0.55) })
-    const bodyMat  = new THREE.MeshLambertMaterial({ color: c })
-    const legMat   = new THREE.MeshLambertMaterial({ color: darken(c, 0.4) })
-    const hairMat  = new THREE.MeshLambertMaterial({ color: darken(c, 0.3) })
-    const darkMat  = new THREE.MeshLambertMaterial({ color: 0x111318 })
-    const whiteMat = new THREE.MeshLambertMaterial({ color: 0xfff0e8 })
-    const eyeMat   = new THREE.MeshLambertMaterial({ color: 0x222233 })
-    const badgeMat = new THREE.MeshLambertMaterial({ color: lighten(c, 0.4) })
+    const shirtMat  = stdMat(shirtCol, 0.85, 0.0)
+    const pantsMat  = stdMat(pantsCol, 0.85, 0.0)
+    const skinMat   = stdMat(skinCol, 0.75, 0.0)
+    const hairMat   = stdMat(hairCol, 0.9, 0.0)
+    const eyeMat    = stdMat(0x1a1a2e, 0.7, 0.0)
+    const eyeGlow   = stdMat(lighten(c, 0.4), 0.3, 0.0, lighten(c, 0.4), 0.6)
+    const badgeMat  = stdMat(lighten(c, 1.5), 0.5, 0.2, c, 0.25)
+    const shoeMat   = stdMat(0x1a1a1a, 0.8, 0.2)
+    const collarMat = stdMat(0xf5f5f5, 0.85, 0.0)
 
     const add = (mesh: THREE.Mesh) => {
-      this.group.add(mesh)
-      this._meshes.push(mesh)
-      return mesh
+      this.group.add(mesh); this._meshes.push(mesh); return mesh
     }
 
-    // Torso
-    const torso = add(new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.52, 0.22), shirtMat))
-    torso.position.set(0, 1.12, 0)
-    torso.castShadow = true
-    this._body = torso
+    // ── Torso (capsule-like with boxes) ─────────────────────────────
+    const torso = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.35, 4, 8), shirtMat))
+    torso.position.set(0, 1.12, 0); torso.castShadow = true
+    this._torso = torso
 
-    // Hip
-    const hip = add(new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.22, 0.2), bodyMat))
-    hip.position.set(0, 0.84, 0)
-    hip.castShadow = true
+    // Shirt collar
+    const collar = add(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.1, 8), collarMat))
+    collar.position.set(0, 1.35, 0)
+
+    // Hip/waist
+    const hip = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.165, 0.12, 4, 8), pantsMat))
+    hip.position.set(0, 0.84, 0); hip.castShadow = true
+
+    // Belt
+    const belt = add(new THREE.Mesh(new THREE.CylinderGeometry(0.182, 0.182, 0.04, 10), stdMat(0x1a1a1a, 0.6, 0.5)))
+    belt.position.set(0, 0.77, 0)
 
     // Seated legs
-    ;[[-0.12, 0], [0.12, 0]].forEach(([lx]) => {
-      const leg = add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.38), legMat))
-      leg.position.set(lx, 0.62, 0.18)
-      leg.rotation.x = Math.PI / 2.5
-      leg.castShadow = true
+    ;[[-0.1, 0], [0.1, 0]].forEach(([lx], li) => {
+      const thigh = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.2, 4, 8), pantsMat))
+      thigh.position.set(lx, 0.65, 0.14)
+      thigh.rotation.x = Math.PI / 2.2; thigh.castShadow = true
+      if (li === 0) this._legL = thigh; else this._legR = thigh
 
-      const foot = add(new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.08, 0.2), darkMat))
-      foot.position.set(lx, 0.44, 0.42)
+      const shin = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.18, 4, 8), pantsMat))
+      shin.position.set(lx, 0.44, 0.38); shin.rotation.x = -Math.PI / 6
+
+      const shoe = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.048, 0.1, 4, 8), shoeMat))
+      shoe.position.set(lx, 0.36, 0.48); shoe.rotation.x = Math.PI / 3
     })
 
-    // Arms
-    const armGeo = new THREE.BoxGeometry(0.1, 0.38, 0.1)
-    const armL = add(new THREE.Mesh(armGeo, shirtMat))
-    armL.position.set(-0.27, 1.08, 0.08)
-    armL.castShadow = true
-    this._armL = armL
+    // ── Arms ────────────────────────────────────────────────────────────
+    ;[[-0.26, 0], [0.26, 0]].forEach(([ax], ai) => {
+      const upper = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.22, 4, 8), shirtMat))
+      upper.position.set(ax, 1.08, 0.07); upper.castShadow = true
+      if (ai === 0) this._armL = upper; else this._armR = upper
 
-    const armR = add(new THREE.Mesh(armGeo.clone(), shirtMat))
-    armR.position.set(0.27, 1.08, 0.08)
-    armR.castShadow = true
-    this._armR = armR
+      const lower = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.18, 4, 8), skinMat))
+      lower.position.set(ax, 0.9, 0.12)
 
-    // Hands
-    const handGeo = new THREE.BoxGeometry(0.09, 0.09, 0.09)
-    const handL = add(new THREE.Mesh(handGeo, whiteMat))
-    handL.position.set(-0.27, 0.88, 0.14)
+      const hand = add(new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), skinMat))
+      hand.position.set(ax, 0.78, 0.18)
+    })
 
-    const handR = add(new THREE.Mesh(handGeo.clone(), whiteMat))
-    handR.position.set(0.27, 0.88, 0.14)
+    // ── Neck ─────────────────────────────────────────────────────────────
+    const neck = add(new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.075, 0.12, 8), skinMat))
+    neck.position.set(0, 1.42, 0); this._neck = neck
 
-    // Neck
-    const neck = add(new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.1, 8), whiteMat))
-    neck.position.set(0, 1.42, 0)
-
-    // Head
-    const head = add(new THREE.Mesh(new THREE.SphereGeometry(0.19, 12, 10), whiteMat))
-    head.scale.set(1, 1.08, 0.92)
-    head.position.set(0, 1.65, 0)
-    head.castShadow = true
+    // ── Head ─────────────────────────────────────────────────────────────
+    const head = add(new THREE.Mesh(new THREE.SphereGeometry(0.21, 16, 12), skinMat))
+    head.scale.set(1.0, 1.1, 0.94)
+    head.position.set(0, 1.68, 0); head.castShadow = true
     this._head = head
 
-    // Eyes
-    ;[[-0.07, 0], [0.07, 0]].forEach(([ex]) => {
-      const eye = add(new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 6), eyeMat))
-      eye.position.set(ex, 1.67, 0.16)
+    // Ears
+    ;[[-0.21, 0], [0.21, 0]].forEach(([ex]) => {
+      const ear = add(new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), skinMat))
+      ear.scale.set(0.5, 0.9, 0.9)
+      ear.position.set(ex, 1.67, 0)
     })
 
-    // Hair (upper hemisphere)
-    const hair = add(new THREE.Mesh(
-      new THREE.SphereGeometry(0.2, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
-      hairMat
-    ))
-    hair.position.set(0, 1.65, 0)
-    hair.castShadow = true
+    // Eyes — iris glow
+    ;[[-0.075, 0], [0.075, 0]].forEach(([ex]) => {
+      const white = add(new THREE.Mesh(new THREE.SphereGeometry(0.032, 8, 8), stdMat(0xfafafa, 0.5, 0.0)))
+      white.position.set(ex, 1.7, 0.18)
+      const iris = add(new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 8), eyeGlow))
+      iris.position.set(ex, 1.7, 0.198)
+      const pupil = add(new THREE.Mesh(new THREE.SphereGeometry(0.012, 6, 6), eyeMat))
+      pupil.position.set(ex, 1.7, 0.208)
+    })
 
-    // Function badge
-    const badge = add(new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.08, 0.02), badgeMat))
-    badge.position.set(0, 1.26, 0.12)
+    // Eyebrows
+    const browMat = stdMat(hairCol, 0.9, 0.0)
+    ;[[-0.075, 0], [0.075, 0]].forEach(([ex]) => {
+      const brow = add(new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.012, 0.012), browMat))
+      brow.position.set(ex, 1.745, 0.185)
+      brow.rotation.z = ex < 0 ? 0.15 : -0.15
+    })
 
-    // Status dot
+    // Mouth (smile)
+    const mouthMat = stdMat(darken(skinCol, 0.7), 0.8, 0.0)
+    const mouth = add(new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.018, 0.01), mouthMat))
+    mouth.position.set(0, 1.63, 0.198); mouth.rotation.z = 0.1
+
+    // ── Hair ────────────────────────────────────────────────────────────
+    const hairStyles = [
+      // Style 0 — dome
+      () => {
+        const hair = add(new THREE.Mesh(new THREE.SphereGeometry(0.225, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), hairMat))
+        hair.position.set(0, 1.68, 0)
+      },
+      // Style 1 — side part
+      () => {
+        const hair = add(new THREE.Mesh(new THREE.SphereGeometry(0.225, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), hairMat))
+        hair.position.set(0.04, 1.68, 0)
+        const tuft = add(new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), hairMat))
+        tuft.position.set(-0.12, 1.88, -0.05)
+      },
+      // Style 2 — spiky
+      () => {
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2
+          const spike = add(new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 5), hairMat))
+          spike.position.set(Math.cos(a) * 0.1, 1.88, Math.sin(a) * 0.1)
+          spike.rotation.z = Math.cos(a) * 0.5; spike.rotation.x = -Math.sin(a) * 0.5
+        }
+        const cap = add(new THREE.Mesh(new THREE.SphereGeometry(0.19, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.45), hairMat))
+        cap.position.set(0, 1.68, 0)
+      },
+      // Style 3 — short back
+      () => {
+        const hair = add(new THREE.Mesh(new THREE.SphereGeometry(0.23, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.48), hairMat))
+        hair.position.set(0, 1.67, -0.04)
+        const bang = add(new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6), hairMat))
+        bang.position.set(0, 1.9, 0.08)
+      },
+    ]
+    hairStyles[index % hairStyles.length]()
+
+    // ── Function badge ────────────────────────────────────────────────────
+    const badge = add(new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.085, 0.025), badgeMat))
+    badge.position.set(0, 1.26, 0.21)
+
+    // ── Status dot — glowing ───────────────────────────────────────────────
     const statusColors: Record<string, number> = {
-      online:    0x00ff88,
-      ocupada:   0xffcc00,
-      aguardando:0x4488ff,
-      offline:   0x444444,
-      erro:      0xff2222,
-      pausada:   0xff8800,
+      online:     0x00ff88,
+      ocupada:    0xffcc00,
+      aguardando: 0x4488ff,
+      offline:    0x555566,
+      erro:       0xff2233,
+      pausada:    0xff8800,
     }
-    const sc = statusColors[agent.status] ?? 0x444444
-    const statusDot = add(new THREE.Mesh(
-      new THREE.SphereGeometry(0.06, 6, 6),
-      new THREE.MeshLambertMaterial({ color: sc, emissive: sc, emissiveIntensity: 0.6 })
-    ))
-    statusDot.position.set(-0.2, 1.18, 0.12)
+    const sc = statusColors[agent.status] ?? 0x555566
+    this._dotMat = stdMat(sc, 0.3, 0.0, sc, 0.9)
+    const dot = add(new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), this._dotMat))
+    dot.position.set(-0.22, 1.21, 0.21); this._statusDot = dot
+
+    // Status dot point light
+    const dotLight = new THREE.PointLight(sc, 0.3, 0.7)
+    dotLight.position.set(-0.22, 1.21, 0.22)
+    this.group.add(dotLight)
+
+    // ── Type indicator (zeus crown / specialist star) ─────────────────────
+    if (agent.tipo === 'zeus') {
+      const crownMat = stdMat(0xffd700, 0.3, 0.8, 0xffd700, 0.5)
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2
+        const spike = add(new THREE.Mesh(new THREE.ConeGeometry(0.022, 0.07, 4), crownMat))
+        spike.position.set(Math.cos(a) * 0.21, 1.92, Math.sin(a) * 0.12)
+        spike.rotation.z = Math.cos(a) * 0.15
+      }
+      const crownRing = add(new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.02, 6, 16), crownMat))
+      crownRing.position.set(0, 1.88, 0); crownRing.rotation.x = Math.PI / 2
+      // Crown glow
+      const crownLight = new THREE.PointLight(0xffd700, 0.5, 1.5)
+      crownLight.position.set(0, 2.0, 0); this.group.add(crownLight)
+    } else if (agent.tipo === 'especialista') {
+      const starMat = stdMat(lighten(c, 1.8), 0.3, 0.5, lighten(c, 1.8), 0.6)
+      const star = add(new THREE.Mesh(new THREE.OctahedronGeometry(0.08), starMat))
+      star.position.set(0.21, 1.92, 0)
+    }
   }
 
-  // ─── HTML overlays ────────────────────────────────────────────────────
+  // ── HTML overlays ──────────────────────────────────────────────────────
 
   private _buildSpeechBubble(): void {
     const div = document.createElement('div')
     div.className = 'zita-speech-bubble'
     div.style.display = 'none'
-    div.innerHTML = `<span class="zita-speech-text"></span>`
+    div.innerHTML = `
+      <div class="zita-bubble-inner">
+        <span class="zita-speech-text"></span>
+      </div>
+      <div class="zita-bubble-tail"></div>
+    `
     document.body.appendChild(div)
     this._speechDiv  = div
     this._speechText = div.querySelector('.zita-speech-text')!
@@ -216,8 +340,14 @@ export class AgentAvatar {
   private _buildNameTag(agent: IaAgent): void {
     const div = document.createElement('div')
     div.className = 'zita-name-tag'
+    const statusEmoji: Record<string, string> = {
+      online: '🟢', ocupada: '🟡', aguardando: '🔵',
+      offline: '⚫', erro: '🔴', pausada: '🟠',
+    }
     div.innerHTML = `
-      <span class="znt-name">${agent.nome}</span>
+      <span class="znt-name">
+        ${statusEmoji[agent.status] || '⚫'} ${agent.nome}
+      </span>
       ${agent.funcao ? `<span class="znt-role">${agent.funcao}</span>` : ''}
     `
     document.body.appendChild(div)
@@ -237,81 +367,94 @@ export class AgentAvatar {
         pointer-events: none;
         transform: translate(-50%, -100%);
         z-index: 50;
-        gap: 1px;
+        gap: 2px;
       }
       .znt-name {
         font-family: 'Segoe UI', system-ui, sans-serif;
-        font-size: 0.72rem;
+        font-size: 0.78rem;
         font-weight: 700;
-        color: #e8eaf0;
-        background: rgba(13,15,20,0.85);
-        padding: 2px 7px;
-        border-radius: 12px;
-        border: 1px solid rgba(255,255,255,0.12);
+        color: #ffffff;
+        background: linear-gradient(135deg, rgba(15,18,28,0.94), rgba(25,30,50,0.94));
+        padding: 3px 10px 3px 8px;
+        border-radius: 20px;
+        border: 1px solid rgba(255,255,255,0.15);
         white-space: nowrap;
-        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
-        backdrop-filter: blur(4px);
+        text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+        backdrop-filter: blur(6px);
+        box-shadow: 0 2px 12px rgba(0,0,0,0.6);
+        letter-spacing: 0.01em;
       }
       .znt-role {
         font-family: 'Segoe UI', system-ui, sans-serif;
-        font-size: 0.62rem;
-        color: #8890a8;
-        background: rgba(13,15,20,0.7);
-        padding: 1px 5px;
-        border-radius: 8px;
+        font-size: 0.65rem;
+        color: #aab4cc;
+        background: rgba(10,12,20,0.8);
+        padding: 1px 8px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.08);
         white-space: nowrap;
+        backdrop-filter: blur(4px);
       }
       .zita-speech-bubble {
         position: fixed;
-        max-width: 200px;
         pointer-events: none;
         transform: translate(-50%, -100%);
-        z-index: 51;
+        z-index: 52;
+        max-width: 220px;
+        min-width: 120px;
+        filter: drop-shadow(0 4px 16px rgba(0,0,0,0.7));
+      }
+      .zita-bubble-inner {
+        background: linear-gradient(135deg, rgba(16,22,40,0.97), rgba(22,32,60,0.97));
+        border: 1.5px solid rgba(100,160,255,0.45);
+        border-radius: 14px;
+        padding: 8px 13px;
+        backdrop-filter: blur(8px);
+        box-shadow: 0 0 20px rgba(80,140,255,0.2), inset 0 1px 0 rgba(255,255,255,0.1);
       }
       .zita-speech-text {
         display: block;
         font-family: 'Segoe UI', system-ui, sans-serif;
-        font-size: 0.72rem;
-        color: #e8eaf0;
-        background: rgba(20,26,40,0.93);
-        padding: 5px 10px;
-        border-radius: 10px;
-        border: 1px solid rgba(74,158,255,0.35);
-        backdrop-filter: blur(6px);
+        font-size: 0.78rem;
+        font-weight: 500;
+        color: #dde6ff;
         white-space: normal;
-        line-height: 1.35;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        line-height: 1.4;
         text-align: center;
-        animation: zitaBubblePop 0.2s ease;
+        animation: zitaBubblePop 0.25s cubic-bezier(0.34,1.56,0.64,1);
+      }
+      .zita-bubble-tail {
+        width: 0; height: 0;
+        border-left: 7px solid transparent;
+        border-right: 7px solid transparent;
+        border-top: 9px solid rgba(16,22,40,0.97);
+        margin: 0 auto;
+        position: relative;
+      }
+      .zita-bubble-tail::before {
+        content: '';
+        position: absolute;
+        top: -11px; left: -8.5px;
+        border-left: 8.5px solid transparent;
+        border-right: 8.5px solid transparent;
+        border-top: 11px solid rgba(100,160,255,0.45);
       }
       @keyframes zitaBubblePop {
-        from { transform: scale(0.85); opacity: 0; }
-        to   { transform: scale(1);    opacity: 1; }
-      }
-      .zita-speech-bubble::after {
-        content: '';
-        display: block;
-        width: 0;
-        height: 0;
-        border-left: 6px solid transparent;
-        border-right: 6px solid transparent;
-        border-top: 8px solid rgba(20,26,40,0.93);
-        margin: 0 auto;
+        from { transform: scale(0.7) translateY(8px); opacity: 0; }
+        to   { transform: scale(1)   translateY(0);   opacity: 1; }
       }
     `
     document.head.appendChild(style)
   }
 
-  // ─── Per-frame updates ────────────────────────────────────────────────
+  // ── Per-frame updates ───────────────────────────────────────────────────
 
-  /** Call every frame after rendering to reposition HTML overlays */
   updateHTML(camera: THREE.Camera, canvas: HTMLElement): void {
     const rect = canvas.getBoundingClientRect()
 
-    const namePos = this.group.position.clone()
-    namePos.y += 2.1
+    // Name tag — positioned above head
+    const namePos = this.group.position.clone(); namePos.y += 2.2
     const np = this._project(camera, namePos, rect)
-
     if (np.visible) {
       this._nameTagDiv.style.display = 'flex'
       this._nameTagDiv.style.left = np.x + 'px'
@@ -320,9 +463,9 @@ export class AgentAvatar {
       this._nameTagDiv.style.display = 'none'
     }
 
+    // Speech bubble — above name tag
     if (this._speechVisible) {
-      const bubblePos = this.group.position.clone()
-      bubblePos.y += 2.6
+      const bubblePos = this.group.position.clone(); bubblePos.y += 3.1
       const bp = this._project(camera, bubblePos, rect)
       if (bp.visible) {
         this._speechDiv.style.display = 'block'
@@ -334,61 +477,67 @@ export class AgentAvatar {
     }
   }
 
-  /** Call every frame to advance animations */
   update(_delta: number, elapsed: number): void {
     const isActive = this._status === 'active'
     const speed    = isActive ? ACTIVE_BOB_SPEED : IDLE_BOB_SPEED
     const range    = isActive ? ACTIVE_BOB_RANGE : IDLE_BOB_RANGE
 
     const bob = Math.sin(elapsed * speed) * range
-    if (this._body) this._body.position.y = 1.12 + bob
+
+    if (this._torso) this._torso.position.y = 1.12 + bob
+    if (this._neck)  this._neck.position.y  = 1.42 + bob * 0.6
     if (this._head) {
-      this._head.position.y = 1.65 + bob * 0.5
-      this._head.rotation.y = Math.sin(elapsed * 0.4) * 0.06
+      this._head.position.y  = 1.68 + bob * 0.5
+      this._head.rotation.y  = Math.sin(elapsed * 0.35) * 0.08
+      this._head.rotation.z  = Math.sin(elapsed * 0.22) * 0.025
     }
 
+    // Arms: typing motion when active
     if (this._armL && this._armR) {
       if (isActive) {
-        const tL =  Math.sin(elapsed * ACTIVE_BOB_SPEED * 1.3) * 0.15
-        const tR = -Math.sin(elapsed * ACTIVE_BOB_SPEED * 1.3) * 0.15
+        const tL =  Math.sin(elapsed * ACTIVE_BOB_SPEED * 1.2) * 0.2
+        const tR = -Math.sin(elapsed * ACTIVE_BOB_SPEED * 1.2) * 0.2
         this._armL.rotation.x = tL
         this._armR.rotation.x = tR
       } else {
-        this._armL.rotation.x = Math.sin(elapsed * 0.5) * 0.02
-        this._armR.rotation.x = Math.sin(elapsed * 0.5 + 1) * 0.02
+        this._armL.rotation.x = Math.sin(elapsed * 0.45) * 0.04
+        this._armR.rotation.x = Math.sin(elapsed * 0.45 + 1.2) * 0.04
       }
+    }
+
+    // Status dot pulse
+    if (this._dotMat) {
+      this._dotMat.emissiveIntensity = 0.6 + Math.sin(elapsed * 3.0) * 0.35
     }
   }
 
-  // ─── Raycasting helpers ───────────────────────────────────────────────
-
+  // ── Raycasting ────────────────────────────────────────────────────────────
   owns(obj: THREE.Object3D): boolean {
     return this._meshes.includes(obj as THREE.Mesh)
   }
 
-  // ─── Cleanup ──────────────────────────────────────────────────────────
-
+  // ── Cleanup ───────────────────────────────────────────────────────────────
   dispose(): void {
     if (this._taskTimeout)   clearTimeout(this._taskTimeout)
     if (this._speechTimeout) clearTimeout(this._speechTimeout)
     this.scene.remove(this.group)
-    this._nameTagDiv.remove()
-    this._speechDiv.remove()
+    if (this._nameTagDiv.parentNode) this._nameTagDiv.remove()
+    if (this._speechDiv.parentNode)  this._speechDiv.remove()
   }
 
-  // ─── Private helpers ──────────────────────────────────────────────────
+  // ── Private ───────────────────────────────────────────────────────────────
 
   private _project(
     camera: THREE.Camera,
     worldPos: THREE.Vector3,
-    rect: DOMRect
+    rect: DOMRect,
   ): { x: number; y: number; visible: boolean } {
     const vec = worldPos.clone().project(camera)
     const x = (vec.x + 1) / 2 * rect.width  + rect.left
     const y = -(vec.y - 1) / 2 * rect.height + rect.top
     const visible = vec.z < 1
       && x > rect.left - 50 && x < rect.right  + 50
-      && y > rect.top  - 50 && y < rect.bottom + 50
+      && y > rect.top  - 80 && y < rect.bottom + 50
     return { x, y, visible }
   }
 
@@ -399,7 +548,19 @@ export class AgentAvatar {
 
   private _executeTask(): void {
     this._status = 'active'
-    const msg = TASK_MESSAGES[Math.floor(Math.random() * TASK_MESSAGES.length)]
+
+    const pool = STATUS_MESSAGES[this._agentStatus] ?? GENERIC_MESSAGES
+    const allMessages = [...pool, ...GENERIC_MESSAGES]
+    const msg = allMessages[Math.floor(Math.random() * allMessages.length)]
+
+    // Style bubble with agent color
+    const inner = this._speechDiv.querySelector<HTMLElement>('.zita-bubble-inner')
+    if (inner) {
+      inner.style.borderColor = `${this.agentColor}66`
+      inner.style.boxShadow   = `0 0 20px ${this.agentColor}33, inset 0 1px 0 rgba(255,255,255,0.1)`
+    }
+    const tail = this._speechDiv.querySelector<HTMLElement>('.zita-bubble-tail')
+    if (tail) tail.style.borderTopColor = `rgba(16,22,40,0.97)`
 
     this._speechText.textContent = msg
     this._speechDiv.style.display = 'block'
@@ -407,14 +568,15 @@ export class AgentAvatar {
 
     if (this._speechTimeout) clearTimeout(this._speechTimeout)
     this._speechTimeout = setTimeout(() => {
-      this._status = 'done'
       this._speechVisible = false
       this._speechDiv.style.display = 'none'
+      this._status = 'done'
 
       setTimeout(() => {
         this._status = 'idle'
         this._scheduleNextTask()
-      }, 1500)
+      }, 2000 + Math.random() * 1500)
     }, SPEECH_DURATION)
   }
+
 }
