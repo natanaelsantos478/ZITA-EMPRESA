@@ -2,61 +2,11 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { Plus, Pencil, Trash2, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 import { useAuth } from '../../../contexts/AuthContext'
 import { useAgentStatus } from '../../../hooks/useAgentStatus'
-import { supabase } from '../../../lib/supabase'
 import type { IaAgent } from '../../../types'
-import Personagem2D from './Personagem2D'
+import Personagem2D, { AGENT_CIRCLE_CX_OFFSET, AGENT_CIRCLE_CY_OFFSET } from './Personagem2D'
 import Sala2D, { type SalaConfig } from './Sala2D'
 import ControleIAPanel from '../ControleIA/ControleIAPanel'
 import ChatIA from '../Chat/ChatIA'
-
-// ─── Customise Character Modal ────────────────────────────────────────────────
-const FACE_OPTIONS = ['😐', '😊', '🤖', '😎', '🧠']
-
-function CustomizeModal({ agent, onClose }: { agent: IaAgent; onClose: () => void }) {
-  const [faceIdx, setFaceIdx] = useState<number>(
-    (agent.integracao_config?.avatar_2d as any)?.rosto ?? 0
-  )
-
-  const save = async () => {
-    const current = (agent.integracao_config ?? {}) as Record<string, unknown>
-    await supabase.from('ia_agents').update({
-      integracao_config: { ...current, avatar_2d: { rosto: faceIdx } },
-    }).eq('id', agent.id)
-    onClose()
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-80 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-white font-semibold mb-4">Personalizar {agent.nome}</h3>
-
-        <p className="text-xs text-gray-400 mb-2">Rosto</p>
-        <div className="flex gap-3 mb-6">
-          {FACE_OPTIONS.map((f, i) => (
-            <button
-              key={i}
-              onClick={() => setFaceIdx(i)}
-              className={`text-2xl p-2 rounded-xl border-2 transition-colors ${
-                faceIdx === i ? 'border-brand-500 bg-brand-500/10' : 'border-gray-700 hover:border-gray-500'
-              }`}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex gap-2 justify-end">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-800">
-            Cancelar
-          </button>
-          <button onClick={save} className="px-4 py-2 rounded-lg text-sm bg-brand-600 hover:bg-brand-500 text-white">
-            Salvar
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // ─── Add/Edit Sala Modal ──────────────────────────────────────────────────────
 function SalaModal({
@@ -159,7 +109,6 @@ export default function Escritorio2D() {
   // UI
   const [selectedAgent, setSelectedAgent] = useState<IaAgent | null>(null)
   const [chatAgent, setChatAgent] = useState<IaAgent | null>(null)
-  const [customizeAgent, setCustomizeAgent] = useState<IaAgent | null>(null)
   const [showSalaModal, setShowSalaModal] = useState(false)
   const [editingSala, setEditingSala] = useState<SalaConfig | null>(null)
 
@@ -335,7 +284,6 @@ export default function Escritorio2D() {
                         data-agent2d={agent.id}
                         style={{ position: 'absolute', left: relX, top: relY, cursor: 'grab' }}
                         onMouseDown={(e) => startAgentDrag(agent.id, e)}
-                        onDoubleClick={() => setCustomizeAgent(agent)}
                       >
                         <Personagem2D
                           agent={agent}
@@ -370,23 +318,52 @@ export default function Escritorio2D() {
             </div>
           ))}
 
-          {/* SVG connection lines */}
+          {/* SVG connection lines — org-chart style, centered on agent circles */}
           <svg style={{ position: 'absolute', top: 0, left: 0, width: '4000px', height: '3000px', pointerEvents: 'none' }}>
+            <defs>
+              {connections.map(({ from }) => {
+                const fromAgent = agents.find((a) => a.id === from)
+                const color = fromAgent?.cor_hex ?? '#4e5eff'
+                return (
+                  <marker
+                    key={`arrow-${from}`}
+                    id={`arrow-${from}`}
+                    viewBox="0 0 8 8"
+                    refX="7"
+                    refY="4"
+                    markerWidth="6"
+                    markerHeight="6"
+                    orient="auto"
+                  >
+                    <path d="M0,0 L8,4 L0,8 Z" fill={color} opacity={0.7} />
+                  </marker>
+                )
+              })}
+            </defs>
+
             {connections.map(({ from, to }) => {
               const fp = agentPos[from]
               const tp = agentPos[to]
               if (!fp || !tp) return null
               const fromAgent = agents.find((a) => a.id === from)
               const color = fromAgent?.cor_hex ?? '#4e5eff'
+              // Circle centers: pos.x + CX_OFFSET, pos.y + CY_OFFSET
+              const x1 = fp.x + AGENT_CIRCLE_CX_OFFSET
+              const y1 = fp.y + AGENT_CIRCLE_CY_OFFSET
+              const x2 = tp.x + AGENT_CIRCLE_CX_OFFSET
+              const y2 = tp.y + AGENT_CIRCLE_CY_OFFSET
+              // Cubic bezier — vertical S-curve for hierarchy feel
+              const cy1 = y1 + (y2 - y1) * 0.4
+              const cy2 = y2 - (y2 - y1) * 0.4
               return (
-                <line
+                <path
                   key={`${from}-${to}`}
-                  x1={fp.x + 22} y1={fp.y + 44}
-                  x2={tp.x + 22} y2={tp.y + 44}
+                  d={`M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`}
                   stroke={color}
-                  strokeWidth={1.5}
-                  strokeOpacity={0.5}
-                  strokeDasharray="6,4"
+                  strokeWidth={1.8}
+                  strokeOpacity={0.65}
+                  fill="none"
+                  markerEnd={`url(#arrow-${from})`}
                 />
               )
             })}
@@ -414,7 +391,6 @@ export default function Escritorio2D() {
         />
       )}
       {chatAgent && <ChatIA agent={chatAgent} onClose={() => setChatAgent(null)} />}
-      {customizeAgent && <CustomizeModal agent={customizeAgent} onClose={() => setCustomizeAgent(null)} />}
       {showSalaModal && (
         <SalaModal onSave={addSala} onClose={() => setShowSalaModal(false)} />
       )}

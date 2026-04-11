@@ -9,7 +9,14 @@ const STATUS_COLOR: Record<string, string> = {
   pausada:   '#f97316',
 }
 
-const FACE_OPTIONS = ['😐', '😊', '🤖', '😎', '🧠']
+const STATUS_LABEL: Record<string, string> = {
+  online:    'Online',
+  ocupada:   'Ocupada',
+  aguardando:'Aguardando',
+  offline:   'Offline',
+  erro:      'Erro',
+  pausada:   'Pausada',
+}
 
 interface Props {
   agent: IaAgent
@@ -18,55 +25,85 @@ interface Props {
   onMouseDown?: (e: React.MouseEvent) => void
 }
 
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
+  return name.slice(0, 2).toUpperCase()
+}
+
+// CIRCLE_SIZE must match the offsets used in Escritorio2D SVG lines:
+// circle center x = container_left + CONTAINER_W/2 = pos.x + 32
+// circle center y = (pos.y - 32) + CIRCLE_SIZE/2   = pos.y - 10
+// → when updating, keep CONTAINER_W=64 and CIRCLE_SIZE=44 consistent.
+export const AGENT_CIRCLE_CX_OFFSET = 32  // half of 64px container
+export const AGENT_CIRCLE_CY_OFFSET = -10 // (44/2) - 32px title bar offset
+
 export default function Personagem2D({ agent, onClick, onMouseDown }: Props) {
   const color = agent.cor_hex || '#4e5eff'
   const statusColor = STATUS_COLOR[agent.status] ?? '#6b7280'
-  const faceIdx = (agent.integracao_config?.avatar_2d as any)?.rosto ?? 0
-  const face = FACE_OPTIONS[faceIdx] ?? '😐'
   const isZeus = agent.tipo === 'zeus'
+  const initials = getInitials(agent.nome)
 
   return (
     <div
       className="flex flex-col items-center gap-1 cursor-pointer select-none group"
+      style={{ width: '64px' }}
       onClick={onClick}
       onMouseDown={onMouseDown}
-      title={agent.nome}
+      title={`${agent.nome}${agent.funcao ? ` — ${agent.funcao}` : ''} • ${STATUS_LABEL[agent.status] ?? agent.status}`}
     >
-      {/* Status dot */}
-      <div
-        className="w-2.5 h-2.5 rounded-full border border-gray-900 mb-0.5"
-        style={{ backgroundColor: statusColor, boxShadow: `0 0 6px ${statusColor}` }}
-      />
+      {/* Circle avatar */}
+      <div className="relative flex-shrink-0">
+        <div
+          className="flex items-center justify-center font-semibold text-white text-[13px] transition-transform group-hover:scale-110"
+          style={{
+            width: '44px',
+            height: '44px',
+            borderRadius: '50%',
+            backgroundColor: color,
+            border: isZeus
+              ? '2.5px solid #eab308'
+              : '2px solid rgba(255,255,255,0.14)',
+            boxShadow: isZeus
+              ? `0 0 0 4px rgba(234,179,8,0.15), 0 3px 12px ${color}60`
+              : `0 3px 12px ${color}50`,
+          }}
+        >
+          {initials}
+        </div>
 
-      {/* Character SVG */}
-      <svg width={isZeus ? 52 : 44} height={isZeus ? 68 : 58} viewBox="0 0 44 58" className="group-hover:scale-110 transition-transform">
-        {/* Shadow */}
-        <ellipse cx="22" cy="56" rx="12" ry="3" fill="rgba(0,0,0,0.3)" />
-        {/* Body */}
-        <rect x="12" y="26" width="20" height="22" rx="6" fill={color} />
-        {/* Arms */}
-        <rect x="4" y="28" width="8" height="4" rx="2" fill={color} />
-        <rect x="32" y="28" width="8" height="4" rx="2" fill={color} />
-        {/* Head */}
-        <circle cx="22" cy="16" r="12" fill={color} />
-        {/* Face overlay */}
-        <text x="22" y="20" textAnchor="middle" fontSize="12">{face}</text>
-        {/* Zeus crown */}
-        {isZeus && (
-          <text x="22" y="6" textAnchor="middle" fontSize="10">👑</text>
-        )}
-        {/* Shine */}
-        <circle cx="18" cy="12" r="3" fill="rgba(255,255,255,0.2)" />
-      </svg>
+        {/* Status dot — bottom-right */}
+        <div
+          className="absolute bottom-0 right-0 rounded-full"
+          style={{
+            width: '12px',
+            height: '12px',
+            backgroundColor: statusColor,
+            border: '2px solid #030712',
+            boxShadow: `0 0 5px ${statusColor}99`,
+          }}
+        />
+      </div>
 
       {/* Name */}
       <span
-        className={`text-xs font-medium text-center max-w-[72px] truncate ${isZeus ? 'text-yellow-300' : 'text-gray-200'}`}
+        className="text-[11px] font-medium text-center leading-tight truncate"
+        style={{
+          maxWidth: '64px',
+          color: isZeus ? '#fde047' : '#e5e7eb',
+        }}
       >
         {agent.nome}
       </span>
+
+      {/* Role */}
       {agent.funcao && (
-        <span className="text-[10px] text-gray-500 max-w-[72px] truncate">{agent.funcao}</span>
+        <span
+          className="text-[9px] text-center leading-tight truncate"
+          style={{ maxWidth: '64px', color: '#6b7280' }}
+        >
+          {agent.funcao}
+        </span>
       )}
     </div>
   )
