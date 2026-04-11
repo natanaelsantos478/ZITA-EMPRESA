@@ -27,24 +27,48 @@ export default function Sala2D({ sala, children, onDragStart, isAdmin }: Props) 
         top: sala.y,
         width: sala.w,
         height: sala.h,
-        borderColor: sala.cor + '99',
-        backgroundColor: sala.cor + '11',
+        backgroundColor: '#141720',
+        border: '1px solid #2d3142',
+        borderRadius: '3px',
+        // Grid de alinhamento sutil — não pixel art, apenas guias
+        backgroundImage:
+          'linear-gradient(rgba(255,255,255,0.022) 1px, transparent 1px),' +
+          'linear-gradient(90deg, rgba(255,255,255,0.022) 1px, transparent 1px)',
+        backgroundSize: '40px 40px',
+        boxShadow: '0 2px 16px rgba(0,0,0,0.4)',
       }}
-      className="border-2 rounded-2xl"
     >
-      {/* Title bar */}
+      {/* Label row — drag handle para admins */}
       <div
-        className="flex items-center justify-between px-3 py-1.5 rounded-t-xl cursor-move select-none"
-        style={{ backgroundColor: sala.cor + '22', borderBottom: `1px solid ${sala.cor}44` }}
-        onMouseDown={isAdmin ? (e) => { e.stopPropagation(); onDragStart?.(e, sala.id) } : undefined}
+        style={{
+          borderBottom: '1px solid #2d3142',
+          cursor: isAdmin ? 'move' : 'default',
+          height: '28px',
+        }}
+        className="flex items-center gap-1.5 px-2.5 select-none"
+        onMouseDown={
+          isAdmin
+            ? (e) => { e.stopPropagation(); onDragStart?.(e, sala.id) }
+            : undefined
+        }
       >
-        <span className="text-xs font-semibold" style={{ color: sala.cor }}>
+        <span
+          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+          style={{ backgroundColor: sala.cor }}
+        />
+        <span
+          className="text-[11px] font-semibold tracking-widest uppercase"
+          style={{ color: '#6b7280', letterSpacing: '0.08em' }}
+        >
           {sala.nome}
         </span>
       </div>
 
-      {/* Content area — characters drop here */}
-      <div className="p-4 flex flex-wrap gap-4 items-end content-start">
+      {/* Área de conteúdo — position: relative para agentes e móveis absolutos */}
+      <div
+        className="relative"
+        style={{ width: '100%', height: 'calc(100% - 28px)' }}
+      >
         {children}
       </div>
     </div>
