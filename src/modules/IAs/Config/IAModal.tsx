@@ -58,7 +58,11 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
   const otherAgents = agents.filter((a) => a.id !== agent?.id)
 
   const handleSave = async () => {
-    if (!nome.trim() || !companyId) return
+    if (!nome.trim()) return
+    if (!companyId) {
+      setErro('Empresa não identificada. Faça login novamente.')
+      return
+    }
     if (tipo === 'zeus' && zeusExists) {
       setErro('Já existe uma IA do tipo Zeus. Só pode haver uma.')
       return

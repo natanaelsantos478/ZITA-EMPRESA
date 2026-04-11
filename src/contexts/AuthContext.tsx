@@ -31,6 +31,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (data) setProfile(data as Profile)
   }, [])
 
+  // DEV BYPASS — auto-login quando VITE_DEV_BYPASS=true no .env.local
+  // Preencha VITE_DEV_BYPASS_EMAIL e VITE_DEV_BYPASS_PASSWORD no .env.local
+  useEffect(() => {
+    if (import.meta.env.VITE_DEV_BYPASS !== 'true') return
+    const email    = import.meta.env.VITE_DEV_BYPASS_EMAIL as string | undefined
+    const password = import.meta.env.VITE_DEV_BYPASS_PASSWORD as string | undefined
+    if (!email || !password || password === 'sua_senha_aqui') return
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) {
+        supabase.auth.signInWithPassword({ email, password })
+          .then(({ data }) => { if (data.user) fetchProfile(data.user.id) })
+      }
+    })
+  }, [fetchProfile])
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
