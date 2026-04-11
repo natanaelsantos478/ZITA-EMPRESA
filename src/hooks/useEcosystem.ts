@@ -36,12 +36,9 @@ export function useEcosystem(agents: IaAgent[]) {
     isProcessing:  false,
   })
 
-  // IDs dos agentes que este cliente pode processar
-  // (aqueles que têm Gemini key configurada — global ou própria)
-  const globalKey = import.meta.env.VITE_GEMINI_KEY as string | undefined
-  const processableIds = agents
-    .filter(a => a.integracao_config?.gemini_api_key || globalKey)
-    .map(a => a.id)
+  // Todos os agentes da empresa podem ser processados —
+  // a chave da API fica nos Secrets do Supabase e é lida server-side pelo gemini-proxy.
+  const processableIds = agents.map(a => a.id)
 
   // ── Core processing ────────────────────────────────────────────────────────
 

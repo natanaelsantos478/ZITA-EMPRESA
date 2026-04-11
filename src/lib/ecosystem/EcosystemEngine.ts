@@ -5,7 +5,7 @@
  * Processa a fila ia_acoes com Gemini, executa chamadas a APIs externas,
  * compartilha memórias e respeita hierarquia.
  */
-import { supabase } from '../supabase'
+import { supabase, supabaseUrl } from '../supabase'
 import type { IaAgent } from '../../types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -366,55 +366,52 @@ export class EcosystemEngine {
     }
   }
 
-  // ── Gemini call ───────────────────────────────────────────────────────────────
+  // ── Gemini call via proxy server-side ────────────────────────────────────────
+  // A chave da API nunca trafega no cliente.
+  // O Edge Function gemini-proxy lê a chave dos Secrets do Supabase.
 
   private async _callGemini(
     acao:     IaAcao,
     agent:    IaAgent,
     agentMap: Map<string, IaAgent>,
   ): Promise<GeminiResponse> {
-    const apiKey =
-      (agent.integracao_config?.gemini_api_key as string | undefined) ||
-      (import.meta.env.VITE_GEMINI_KEY as string | undefined)
-
-    if (!apiKey) throw new Error('Chave Gemini não configurada para ' + agent.nome)
-
     // Mark agent as busy
     await supabase.from('ia_agents').update({ status: 'ocupada' }).eq('id', agent.id)
 
-    const memories = await this.fetchMemories(agent.id)
+    const memories    = await this.fetchMemories(agent.id)
     const systemPrompt = this._buildSystemPrompt(agent, agentMap, memories)
     const userMessage  = this._buildUserMessage(acao, agentMap)
 
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-          generationConfig: {
-            temperature:      agent.personalidade?.temperatura    ?? 0.7,
-            maxOutputTokens:  agent.personalidade?.max_tokens     ?? 2000,
-            responseMimeType: 'application/json',
-          },
-        }),
-      }
-    )
+    // Obtém o JWT da sessão atual para autenticar no proxy
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) throw new Error('Sessão expirada — faça login novamente')
+
+    const resp = await fetch(`${supabaseUrl}/functions/v1/gemini-proxy`, {
+      method:  'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify({
+        system_prompt: systemPrompt,
+        user_message:  userMessage,
+        temperature:   agent.personalidade?.temperatura ?? 0.7,
+        max_tokens:    agent.personalidade?.max_tokens  ?? 2000,
+      }),
+    })
 
     if (!resp.ok) {
-      const txt = await resp.text()
-      throw new Error(`Gemini ${resp.status}: ${txt.slice(0, 200)}`)
+      const body = await resp.json().catch(() => ({ error: resp.statusText }))
+      // 402 = chave não configurada para esta empresa
+      throw new Error(body.hint ?? body.error ?? `Proxy ${resp.status}`)
     }
 
-    const data = await resp.json()
-    const raw  = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}') as string
+    const { text } = await resp.json()
 
     try {
-      return JSON.parse(raw) as GeminiResponse
+      return JSON.parse(text) as GeminiResponse
     } catch {
-      return { resposta: raw, salvar_como_memoria: false }
+      return { resposta: text, salvar_como_memoria: false }
     }
   }
 

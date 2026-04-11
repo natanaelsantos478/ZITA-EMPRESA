@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { X, Loader2, Eye, EyeOff } from 'lucide-react'
+import { X, Loader2 } from 'lucide-react'
 import { supabase } from '../../../lib/supabase'
 import { useAuth } from '../../../contexts/AuthContext'
 import type { IaAgent, AgentTipo } from '../../../types'
 
 // integracao_tipo values allowed by DB check constraint
-const INTEGRACOES = ['', 'gemini', 'openai', 'anthropic', 'flowise', 'n8n', 'make', 'webhook', 'runway', 'custom']
+// Gemini é gerenciado pelo owner via Supabase Secrets — não exige configuração aqui
+const INTEGRACOES = ['', 'gemini', 'flowise', 'n8n', 'make', 'webhook', 'openai', 'anthropic', 'runway', 'custom']
 const TONS = ['profissional', 'casual', 'técnico', 'amigável']
 
 // Capacidade keys matching the actual ia_agents.capacidades JSONB schema
@@ -41,8 +42,6 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
   const [cor,        setCor]        = useState(agent?.cor_hex ?? '#4e5eff')
   const [integTipo,  setIntegTipo]  = useState(agent?.integracao_tipo ?? '')
   const [integUrl,   setIntegUrl]   = useState(agent?.integracao_url ?? '')
-  const [apiKey,     setApiKey]     = useState('')
-  const [showKey,    setShowKey]    = useState(false)
   const [parentId,   setParentId]   = useState(agent?.organograma_parent_id ?? '')
   const [tom,        setTom]        = useState(agent?.personalidade?.tom ?? 'profissional')
   const [prompt,     setPrompt]     = useState(agent?.personalidade?.prompt_sistema ?? '')
@@ -65,13 +64,10 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
     setLoading(true)
     setErro('')
 
-    // API Key stored in integracao_config — never in plain text column
+    // integracao_config preserva connections (webhooks, slack, etc.) se já existirem.
+    // A chave Gemini NÃO é armazenada aqui — fica nos Secrets do Supabase (owner only).
     const integracao_config: Record<string, unknown> = {}
-    if (apiKey) {
-      // Gemini key stored under gemini_api_key; other integrations under api_key
-      if (integTipo === 'gemini') integracao_config.gemini_api_key = apiKey
-      else integracao_config.api_key = apiKey
-    } else if (agent?.integracao_config) {
+    if (agent?.integracao_config) {
       Object.assign(integracao_config, agent.integracao_config)
     }
 
@@ -201,31 +197,15 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
                 <input value={integUrl} onChange={(e) => setIntegUrl(e.target.value)} placeholder="https://…"
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500" />
               </div>
-              <div className="col-span-2">
-                <label className="block text-xs text-gray-500 mb-1">
-                  {integTipo === 'gemini' ? 'Chave Gemini (Google AI Studio)' : 'API Key'}
-                  {isEdit ? ' — deixe vazio para não alterar' : ''}
-                </label>
-                <div className="relative">
-                  <input
-                    type={showKey ? 'text' : 'password'}
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={isEdit ? '••••••••' : integTipo === 'gemini' ? 'AIzaSy…' : 'sk-…'}
-                    className="w-full px-3 py-2 pr-9 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500"
-                  />
-                  <button type="button" onClick={() => setShowKey(!showKey)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
-                    {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                {integTipo === 'gemini' && (
-                  <p className="text-xs text-gray-600 mt-1">
-                    Obtenha sua chave em{' '}
-                    <span className="text-brand-400">aistudio.google.com/apikey</span>
+              {integTipo === 'gemini' && (
+                <div className="col-span-2 px-3 py-2.5 bg-blue-950/40 border border-blue-800/40 rounded-lg">
+                  <p className="text-xs text-blue-300 font-medium">Chave gerenciada pelo administrador</p>
+                  <p className="text-xs text-blue-400/70 mt-0.5">
+                    A chave da API Gemini é configurada nos Secrets do Supabase e nunca fica visível aqui.
+                    Contate o administrador para ativar ou alterar a chave desta empresa.
                   </p>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </div>
 
