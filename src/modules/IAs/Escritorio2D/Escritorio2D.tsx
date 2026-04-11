@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Plus, Pencil, Trash2, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, ZoomIn, ZoomOut, Maximize2, RotateCw } from 'lucide-react'
 import { useAuth } from '../../../contexts/AuthContext'
 import { useAgentStatus } from '../../../hooks/useAgentStatus'
 import type { IaAgent } from '../../../types'
@@ -7,6 +7,14 @@ import Personagem2D, { AGENT_CIRCLE_CX_OFFSET, AGENT_CIRCLE_CY_OFFSET } from './
 import Sala2D, { type SalaConfig } from './Sala2D'
 import ControleIAPanel from '../ControleIA/ControleIAPanel'
 import ChatIA from '../Chat/ChatIA'
+import { DeskIcon, ChairIcon } from './FurnitureIcons'
+import { useAgentSimulation, type FurnitureItem, type FurnitureMap } from './useAgentSimulation'
+
+// ─── Debounce helper ──────────────────────────────────────────────────────────
+function debounce<T extends unknown[]>(fn: (...args: T) => void, ms: number) {
+  let t: ReturnType<typeof setTimeout>
+  return (...args: T) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms) }
+}
 
 // ─── Add/Edit Sala Modal ──────────────────────────────────────────────────────
 function SalaModal({
@@ -32,7 +40,7 @@ function SalaModal({
           className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white mb-4 outline-none focus:border-brand-500"
         />
 
-        <label className="block text-xs text-gray-400 mb-1">Cor</label>
+        <label className="block text-xs text-gray-400 mb-1">Cor de identificação</label>
         <div className="flex gap-3 mb-6 flex-wrap">
           {['#4e5eff','#22c55e','#eab308','#ef4444','#a855f7','#f97316','#06b6d4'].map((c) => (
             <button
@@ -65,10 +73,22 @@ function SalaModal({
 
 // ─── Default salas ─────────────────────────────────────────────────────────────
 const DEFAULT_SALAS: SalaConfig[] = [
-  { id: 'zeus', nome: 'Sala Principal', cor: '#eab308', x: 40, y: 80, w: 300, h: 240 },
-  { id: 'especialistas', nome: 'Sala Especialistas', cor: '#4e5eff', x: 380, y: 80, w: 300, h: 240 },
-  { id: 'escritorio', nome: 'Escritório Geral', cor: '#22c55e', x: 720, y: 80, w: 320, h: 240 },
+  { id: 'zeus',         nome: 'Sala Principal',      cor: '#eab308', x: 40,  y: 80, w: 300, h: 260 },
+  { id: 'especialistas',nome: 'Sala Especialistas',  cor: '#4e5eff', x: 380, y: 80, w: 300, h: 260 },
+  { id: 'escritorio',   nome: 'Escritório Geral',    cor: '#22c55e', x: 720, y: 80, w: 320, h: 260 },
 ]
+
+// ─── Default furniture por sala ───────────────────────────────────────────────
+function makeDefaultFurniture(salaId: string): FurnitureItem[] {
+  const items: FurnitureItem[] = []
+  for (let i = 0; i < 4; i++) {
+    const col = 20 + (i % 2) * 110
+    const row = 40 + Math.floor(i / 2) * 100
+    items.push({ id: `${salaId}-desk-${i}`,  type: 'desk',  x: col,      y: row,      rotation: 0 })
+    items.push({ id: `${salaId}-chair-${i}`, type: 'chair', x: col + 14, y: row + 36, rotation: 0 })
+  }
+  return items
+}
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function Escritorio2D() {
@@ -82,7 +102,7 @@ export default function Escritorio2D() {
 
   const canvasRef = useRef<HTMLDivElement>(null)
 
-  // Salas — loaded from localStorage
+  // ── Salas ──────────────────────────────────────────────────────────────────
   const storageKey = `${companyId}_2d_salas`
   const [salas, setSalas] = useState<SalaConfig[]>(() => {
     try {
@@ -92,7 +112,7 @@ export default function Escritorio2D() {
     return DEFAULT_SALAS
   })
 
-  // Agent positions in 2D (within their sala, relative to canvas)
+  // ── Posições dos agentes (canônicas / cadeira de origem) ──────────────────
   const posKey = `${companyId}_2d_positions`
   const [agentPos, setAgentPos] = useState<Record<string, { x: number; y: number; salaId: string }>>(() => {
     try {
@@ -102,49 +122,98 @@ export default function Escritorio2D() {
     return {}
   })
 
-  // Sala drag
-  const [draggingSala, setDraggingSala] = useState<string | null>(null)
-  const [salasDragStart, setSalasDragStart] = useState({ mx: 0, my: 0, ox: 0, oy: 0 })
+  // ── Móveis por sala ────────────────────────────────────────────────────────
+  const furnitureKey = `${companyId}_2d_furniture`
+  const [salaFurniture, setSalaFurniture] = useState<FurnitureMap>(() => {
+    try {
+      const raw = localStorage.getItem(`${companyId}_2d_furniture`)
+      if (raw) return JSON.parse(raw)
+    } catch {}
+    // Semear móveis padrão nas salas iniciais
+    return {
+      zeus:          makeDefaultFurniture('zeus'),
+      especialistas: makeDefaultFurniture('especialistas'),
+      escritorio:    makeDefaultFurniture('escritorio'),
+    }
+  })
 
-  // UI
+  // ── Estados de drag ────────────────────────────────────────────────────────
+  const [draggingSala,     setDraggingSala]     = useState<string | null>(null)
+  const [salasDragStart,   setSalasDragStart]   = useState({ mx: 0, my: 0, ox: 0, oy: 0 })
+  const [draggingAgent,    setDraggingAgent]    = useState<string | null>(null)
+  const [agentDragStart,   setAgentDragStart]   = useState({ mx: 0, my: 0, ox: 0, oy: 0 })
+
+  // ── Furniture management ───────────────────────────────────────────────────
+  const [furnitureDeleteMode,   setFurnitureDeleteMode]   = useState(false)
+  const [selectedFurnitureId,   setSelectedFurnitureId]   = useState<string | null>(null)
+  const [selectedFurnitureSala, setSelectedFurnitureSala] = useState<string | null>(null)
+
+  // ── UI state ───────────────────────────────────────────────────────────────
   const [selectedAgent, setSelectedAgent] = useState<IaAgent | null>(null)
-  const [chatAgent, setChatAgent] = useState<IaAgent | null>(null)
+  const [chatAgent,     setChatAgent]     = useState<IaAgent | null>(null)
   const [showSalaModal, setShowSalaModal] = useState(false)
-  const [editingSala, setEditingSala] = useState<SalaConfig | null>(null)
+  const [editingSala,   setEditingSala]   = useState<SalaConfig | null>(null)
 
-  // Agent drag
-  const [draggingAgent, setDraggingAgent] = useState<string | null>(null)
-  const [agentDragStart, setAgentDragStart] = useState({ mx: 0, my: 0, ox: 0, oy: 0 })
+  // ── Ticker para expirar balões de chat ─────────────────────────────────────
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 500)
+    return () => clearInterval(id)
+  }, [])
 
-  // Persist to localStorage
-  useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(salas)) }, [salas, storageKey])
-  useEffect(() => { localStorage.setItem(posKey, JSON.stringify(agentPos)) }, [agentPos, posKey])
+  // ── Simulação Sims-like ────────────────────────────────────────────────────
+  const { simStates } = useAgentSimulation({
+    agents,
+    agentPos,
+    salas,
+    salaFurniture,
+    enabled: true,
+  })
 
-  // Auto-place new agents
+  // ── Persitência com debounce ───────────────────────────────────────────────
+  const debouncedSaveSalas = useCallback(
+    debounce((v: SalaConfig[]) => localStorage.setItem(storageKey, JSON.stringify(v)), 800),
+    [storageKey],
+  )
+  const debouncedSavePos = useCallback(
+    debounce((v: Record<string, unknown>) => localStorage.setItem(posKey, JSON.stringify(v)), 800),
+    [posKey],
+  )
+  const debouncedSaveFur = useCallback(
+    debounce((v: FurnitureMap) => localStorage.setItem(furnitureKey, JSON.stringify(v)), 800),
+    [furnitureKey],
+  )
+  useEffect(() => { debouncedSaveSalas(salas) },        [salas,         debouncedSaveSalas])
+  useEffect(() => { debouncedSavePos(agentPos) },       [agentPos,      debouncedSavePos])
+  useEffect(() => { debouncedSaveFur(salaFurniture) },  [salaFurniture, debouncedSaveFur])
+
+  // ── Auto-colocar novos agentes ─────────────────────────────────────────────
   useEffect(() => {
     setAgentPos((prev) => {
       const next = { ...prev }
       let changed = false
       agents.forEach((a, idx) => {
         if (!next[a.id]) {
-          const sala = a.tipo === 'zeus' ? 'zeus'
+          const salaId = a.tipo === 'zeus' ? 'zeus'
             : a.tipo === 'especialista' ? 'especialistas'
             : 'escritorio'
-          const salaConf = salas.find((s) => s.id === sala) ?? salas[0]
-          next[a.id] = {
-            x: salaConf.x + 24 + (idx % 4) * 84,
-            y: salaConf.y + 60 + Math.floor(idx / 4) * 100,
-            salaId: sala,
-          }
+          const salaConf = salas.find((s) => s.id === salaId) ?? salas[0]
+          // Tentar posicionar na cadeira disponível
+          const chairs = (salaFurniture[salaId] ?? []).filter(f => f.type === 'chair')
+          const chair  = chairs[idx % Math.max(chairs.length, 1)]
+          const chairX = chair ? salaConf.x + chair.x + 4 : salaConf.x + 24 + (idx % 4) * 84
+          const chairY = chair ? salaConf.y + 28 + chair.y + 4 : salaConf.y + 60 + Math.floor(idx / 4) * 100
+          next[a.id] = { x: chairX, y: chairY, salaId }
           changed = true
         }
       })
       return changed ? next : prev
     })
-  }, [agents, salas])
+  }, [agents, salas, salaFurniture])
 
+  // ── Handlers de input ──────────────────────────────────────────────────────
   const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('[data-sala]')) return
+    if ((e.target as HTMLElement).closest('[data-sala]'))    return
     if ((e.target as HTMLElement).closest('[data-agent2d]')) return
     setIsPanning(true)
     setPanStart({ mx: e.clientX, my: e.clientY, px: pan.x, py: pan.y })
@@ -195,15 +264,38 @@ export default function Escritorio2D() {
     setAgentDragStart({ mx: e.clientX, my: e.clientY, ox: pos.x, oy: pos.y })
   }
 
+  // ── Sala actions ────────────────────────────────────────────────────────────
   const addSala = (data: Omit<SalaConfig, 'id'>) => {
-    setSalas((prev) => [...prev, { ...data, id: crypto.randomUUID() }])
+    const newId = crypto.randomUUID()
+    setSalas((prev) => [...prev, { ...data, id: newId }])
+    setSalaFurniture((prev) => ({ ...prev, [newId]: makeDefaultFurniture(newId) }))
   }
 
   const deleteSala = (id: string) => {
     setSalas((prev) => prev.filter((s) => s.id !== id))
   }
 
-  // Build connections
+  // ── Furniture actions ──────────────────────────────────────────────────────
+  const removeFurniture = (salaId: string, itemId: string) => {
+    setSalaFurniture((prev) => ({
+      ...prev,
+      [salaId]: (prev[salaId] ?? []).filter((f) => f.id !== itemId),
+    }))
+  }
+
+  const handleRotateFurniture = () => {
+    if (!selectedFurnitureId || !selectedFurnitureSala) return
+    setSalaFurniture((prev) => ({
+      ...prev,
+      [selectedFurnitureSala]: (prev[selectedFurnitureSala] ?? []).map((f) =>
+        f.id === selectedFurnitureId
+          ? { ...f, rotation: ((f.rotation + 90) % 360) as 0 | 90 | 180 | 270 }
+          : f
+      ),
+    }))
+  }
+
+  // ── Build org-chart connections ────────────────────────────────────────────
   const connections: Array<{ from: string; to: string }> = []
   agents.forEach((a) => {
     if (a.organograma_parent_id && agentPos[a.organograma_parent_id] && agentPos[a.id]) {
@@ -211,91 +303,236 @@ export default function Escritorio2D() {
     }
   })
 
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="relative w-full h-full overflow-hidden bg-gray-950">
-      {/* Dot grid */}
+    <div className="relative w-full h-full overflow-hidden" style={{ backgroundColor: '#0f1117' }}>
+
+      {/* ── Toolbar de admin ─────────────────────────────────────────────── */}
+      {isAdmin && (
+        <div className="absolute top-0 left-0 right-0 z-20 flex items-center gap-2 px-3 py-1.5"
+          style={{ backgroundColor: '#0d0f14', borderBottom: '1px solid #2d3142', height: '38px' }}
+        >
+          <button
+            onClick={() => setShowSalaModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-gray-400 hover:text-white rounded-md transition-colors"
+            style={{ background: '#1a1d27', border: '1px solid #2d3142' }}
+          >
+            <Plus className="w-3.5 h-3.5" /> Nova Sala
+          </button>
+          <button
+            onClick={handleRotateFurniture}
+            disabled={!selectedFurnitureId}
+            className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-gray-400 hover:text-white rounded-md transition-colors disabled:opacity-40"
+            style={{ background: '#1a1d27', border: '1px solid #2d3142' }}
+            title={selectedFurnitureId ? 'Rotacionar móvel selecionado' : 'Selecione um móvel primeiro'}
+          >
+            <RotateCw className="w-3.5 h-3.5" /> Rotacionar
+          </button>
+          <button
+            onClick={() => { setFurnitureDeleteMode(v => !v); setSelectedFurnitureId(null) }}
+            className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors"
+            style={furnitureDeleteMode
+              ? { color: '#fca5a5', background: 'rgba(153,27,27,0.3)', border: '1px solid rgba(185,28,28,0.5)' }
+              : { color: '#9ca3af', background: '#1a1d27', border: '1px solid #2d3142' }
+            }
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            {furnitureDeleteMode ? 'Clique no móvel' : 'Apagar móvel'}
+          </button>
+          {selectedFurnitureId && !furnitureDeleteMode && (
+            <span className="text-xs text-gray-500 ml-2">
+              Móvel selecionado — clique Rotacionar para girar
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* ── Dot grid ─────────────────────────────────────────────────────── */}
       <div
         className="absolute inset-0 pointer-events-none opacity-10"
         style={{
+          top: isAdmin ? '38px' : 0,
           backgroundImage: 'radial-gradient(circle, #6b7280 1px, transparent 1px)',
           backgroundSize: `${28 * zoom}px ${28 * zoom}px`,
           backgroundPosition: `${pan.x % (28 * zoom)}px ${pan.y % (28 * zoom)}px`,
         }}
       />
 
-      {/* Toolbar */}
-      <div className="absolute bottom-4 left-4 z-20 flex flex-col gap-1.5 bg-gray-900 border border-gray-800 rounded-xl p-2 shadow-lg">
-        <button onClick={() => setZoom((z) => Math.min(2, z + 0.1))} className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white">
+      {/* ── Toolbar de zoom (canto inferior esquerdo) ────────────────────── */}
+      <div
+        className="absolute bottom-4 left-4 z-20 flex flex-col gap-1.5 rounded-xl p-2 shadow-lg"
+        style={{ background: '#141720', border: '1px solid #2d3142' }}
+      >
+        <button onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
+          className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800">
           <ZoomIn className="w-4 h-4" />
         </button>
-        <button onClick={() => setZoom((z) => Math.max(0.3, z - 0.1))} className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white">
+        <button onClick={() => setZoom((z) => Math.max(0.3, z - 0.1))}
+          className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800">
           <ZoomOut className="w-4 h-4" />
         </button>
-        <button onClick={() => { setZoom(0.9); setPan({ x: 20, y: 20 }) }} className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white">
+        <button onClick={() => { setZoom(0.9); setPan({ x: 20, y: 20 }) }}
+          className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800">
           <Maximize2 className="w-4 h-4" />
         </button>
-        {isAdmin && (
-          <>
-            <div className="border-t border-gray-800 my-0.5" />
-            <button onClick={() => setShowSalaModal(true)} title="Nova sala" className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white">
-              <Plus className="w-4 h-4" />
-            </button>
-          </>
-        )}
       </div>
 
-      {/* Zoom indicator */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 bg-gray-900/80 border border-gray-800 rounded-full px-3 py-1 text-xs text-gray-500">
+      {/* ── Indicador de zoom ────────────────────────────────────────────── */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 rounded-full px-3 py-1 text-xs text-gray-500"
+        style={{ background: 'rgba(20,23,32,0.85)', border: '1px solid #2d3142' }}>
         {Math.round(zoom * 100)}%
       </div>
 
-      {/* Canvas */}
+      {/* ── Canvas ───────────────────────────────────────────────────────── */}
       <div
         ref={canvasRef}
         className="absolute inset-0 cursor-grab active:cursor-grabbing"
+        style={{ top: isAdmin ? '38px' : 0 }}
         onMouseDown={handleCanvasMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={(e) => { e.preventDefault(); setZoom((z) => Math.min(2, Math.max(0.3, z - e.deltaY * 0.001))) }}
+        onWheel={(e) => {
+          e.preventDefault()
+          setZoom((z) => Math.min(2, Math.max(0.3, z - e.deltaY * 0.001)))
+        }}
       >
-        <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0', position: 'absolute' }}>
+        <div style={{
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+          transformOrigin: '0 0',
+          position: 'absolute',
+        }}>
 
-          {/* Salas */}
+          {/* ── Salas ──────────────────────────────────────────────────── */}
           {salas.map((sala) => (
             <div key={sala.id} data-sala={sala.id} style={{ position: 'absolute' }}>
-              <Sala2D
-                sala={sala}
-                onDragStart={startSalaDrag}
-                isAdmin={isAdmin}
-              >
-                {/* Characters in this sala */}
+              <Sala2D sala={sala} onDragStart={startSalaDrag} isAdmin={isAdmin}>
+
+                {/* ── Móveis (detrás dos agentes) ─────────────────────── */}
+                {(salaFurniture[sala.id] ?? []).map((item) => (
+                  <div
+                    key={item.id}
+                    style={{
+                      position: 'absolute',
+                      left: item.x,
+                      top: item.y,
+                      zIndex: 1,
+                      cursor: furnitureDeleteMode ? 'pointer' : 'default',
+                      outline: selectedFurnitureId === item.id && !furnitureDeleteMode
+                        ? '2px solid rgba(78,94,255,0.7)'
+                        : 'none',
+                      borderRadius: '3px',
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (furnitureDeleteMode) {
+                        removeFurniture(sala.id, item.id)
+                      } else {
+                        setSelectedFurnitureId(item.id)
+                        setSelectedFurnitureSala(sala.id)
+                      }
+                    }}
+                    title={furnitureDeleteMode ? 'Clique para remover' : 'Clique para selecionar'}
+                  >
+                    {item.type === 'desk'  && <DeskIcon />}
+                    {item.type === 'chair' && <ChairIcon rotation={item.rotation} />}
+                  </div>
+                ))}
+
+                {/* ── Agentes com simulação Sims-like ─────────────────── */}
                 {agents
                   .filter((a) => (agentPos[a.id]?.salaId ?? 'escritorio') === sala.id)
                   .map((agent) => {
                     const pos = agentPos[agent.id]
+                    const sim = simStates[agent.id]
                     if (!pos) return null
-                    // Position relative to sala
-                    const relX = pos.x - sala.x
-                    const relY = pos.y - sala.y - 32 /* title bar */
+
+                    // Usar posição simulada ou posição canônica
+                    const absX = sim ? sim.targetX : pos.x
+                    const absY = sim ? sim.targetY : pos.y
+                    const relX = absX - sala.x
+                    const relY = absY - sala.y - 28 /* title bar */
+
+                    const isMoving = sim?.state !== 'SITTING' && sim?.state !== undefined
+                    const hasBubble = !!(sim?.chatMessage && sim.chatExpiry && now < sim.chatExpiry)
+
                     return (
                       <div
                         key={agent.id}
                         data-agent2d={agent.id}
-                        style={{ position: 'absolute', left: relX, top: relY, cursor: 'grab' }}
+                        style={{
+                          position: 'absolute',
+                          left: relX,
+                          top: relY,
+                          cursor: 'grab',
+                          zIndex: 10,
+                          transition: isMoving ? 'left 1.8s ease, top 1.8s ease' : 'none',
+                        }}
                         onMouseDown={(e) => startAgentDrag(agent.id, e)}
                       >
+                        {/* Balão de conversa */}
+                        {hasBubble && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              bottom: '100%',
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              marginBottom: '6px',
+                              maxWidth: '150px',
+                              textAlign: 'center',
+                              zIndex: 20,
+                              pointerEvents: 'none',
+                            }}
+                          >
+                            <div
+                              className="px-2 py-1 text-white rounded-md shadow-lg whitespace-normal text-[10px] leading-tight"
+                              style={{
+                                background: '#1e2235',
+                                border: '1px solid #3a4060',
+                              }}
+                            >
+                              {sim!.chatMessage}
+                            </div>
+                            {/* Seta do balão */}
+                            <div style={{
+                              margin: '0 auto',
+                              width: 0, height: 0,
+                              borderLeft: '5px solid transparent',
+                              borderRight: '5px solid transparent',
+                              borderTop: '5px solid #3a4060',
+                            }} />
+                          </div>
+                        )}
+
+                        {/* Indicador de atividade (banheiro) */}
+                        {sim?.state === 'BATHROOM' && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              bottom: '100%',
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              marginBottom: '4px',
+                              fontSize: '16px',
+                              zIndex: 20,
+                              pointerEvents: 'none',
+                            }}
+                          >
+                            🚻
+                          </div>
+                        )}
+
                         <Personagem2D
                           agent={agent}
                           onClick={() => setSelectedAgent(agent)}
                         />
                       </div>
                     )
-                  })
-                }
+                  })}
               </Sala2D>
 
-              {/* Edit/Delete sala buttons — admin only */}
+              {/* ── Botões editar/apagar sala ──────────────────────────── */}
               {isAdmin && (
                 <div
                   className="absolute flex gap-1"
@@ -303,13 +540,15 @@ export default function Escritorio2D() {
                 >
                   <button
                     onClick={() => setEditingSala(sala)}
-                    className="p-1 bg-gray-800 hover:bg-gray-700 rounded-md border border-gray-700 text-gray-400 hover:text-white transition-colors"
+                    className="p-1 rounded-md border text-gray-400 hover:text-white transition-colors"
+                    style={{ background: '#1a1d27', border: '1px solid #2d3142' }}
                   >
                     <Pencil className="w-3 h-3" />
                   </button>
                   <button
                     onClick={() => deleteSala(sala.id)}
-                    className="p-1 bg-gray-800 hover:bg-red-900 rounded-md border border-gray-700 text-gray-400 hover:text-red-400 transition-colors"
+                    className="p-1 rounded-md border text-gray-400 hover:text-red-400 transition-colors"
+                    style={{ background: '#1a1d27', border: '1px solid #2d3142' }}
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -318,7 +557,7 @@ export default function Escritorio2D() {
             </div>
           ))}
 
-          {/* SVG connection lines — org-chart style, centered on agent circles */}
+          {/* ── Linhas SVG de hierarquia (org-chart) ─────────────────── */}
           <svg style={{ position: 'absolute', top: 0, left: 0, width: '4000px', height: '3000px', pointerEvents: 'none' }}>
             <defs>
               {connections.map(({ from }) => {
@@ -329,13 +568,11 @@ export default function Escritorio2D() {
                     key={`arrow-${from}`}
                     id={`arrow-${from}`}
                     viewBox="0 0 8 8"
-                    refX="7"
-                    refY="4"
-                    markerWidth="6"
-                    markerHeight="6"
+                    refX="7" refY="4"
+                    markerWidth="6" markerHeight="6"
                     orient="auto"
                   >
-                    <path d="M0,0 L8,4 L0,8 Z" fill={color} opacity={0.7} />
+                    <path d="M0,0 L8,4 L0,8 Z" fill={color} opacity={0.6} />
                   </marker>
                 )
               })}
@@ -347,12 +584,10 @@ export default function Escritorio2D() {
               if (!fp || !tp) return null
               const fromAgent = agents.find((a) => a.id === from)
               const color = fromAgent?.cor_hex ?? '#4e5eff'
-              // Circle centers: pos.x + CX_OFFSET, pos.y + CY_OFFSET
               const x1 = fp.x + AGENT_CIRCLE_CX_OFFSET
               const y1 = fp.y + AGENT_CIRCLE_CY_OFFSET
               const x2 = tp.x + AGENT_CIRCLE_CX_OFFSET
               const y2 = tp.y + AGENT_CIRCLE_CY_OFFSET
-              // Cubic bezier — vertical S-curve for hierarchy feel
               const cy1 = y1 + (y2 - y1) * 0.4
               const cy2 = y2 - (y2 - y1) * 0.4
               return (
@@ -360,8 +595,8 @@ export default function Escritorio2D() {
                   key={`${from}-${to}`}
                   d={`M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`}
                   stroke={color}
-                  strokeWidth={1.8}
-                  strokeOpacity={0.65}
+                  strokeWidth={1.5}
+                  strokeOpacity={0.5}
                   fill="none"
                   markerEnd={`url(#arrow-${from})`}
                 />
@@ -370,7 +605,8 @@ export default function Escritorio2D() {
           </svg>
 
           {agents.length === 0 && (
-            <div style={{ position: 'absolute', left: 200, top: 300, width: 400 }} className="flex flex-col items-center justify-center">
+            <div style={{ position: 'absolute', left: 200, top: 300, width: 400 }}
+              className="flex flex-col items-center justify-center">
               <p className="text-gray-600 text-sm">Nenhuma IA cadastrada.</p>
               {isAdmin && (
                 <a href="/configuracoes/ias" className="text-brand-400 text-sm mt-1 hover:underline">
@@ -382,7 +618,7 @@ export default function Escritorio2D() {
         </div>
       </div>
 
-      {/* Panels */}
+      {/* ── Panels ─────────────────────────────────────────────────────────── */}
       {selectedAgent && (
         <ControleIAPanel
           agent={selectedAgent}
