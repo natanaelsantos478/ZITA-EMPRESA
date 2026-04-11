@@ -4,7 +4,7 @@ import { supabase } from '../../../lib/supabase'
 import { useAuth } from '../../../contexts/AuthContext'
 import type { IaAgent, AgentTipo, ModoArquivo } from '../../../types'
 
-const INTEGRACOES = ['', 'flowise', 'runway', 'n8n', 'make', 'openai', 'anthropic', 'custom', 'webhook']
+const INTEGRACOES = ['', 'flowise', 'runway', 'n8n', 'make', 'openai', 'anthropic', 'gemini', 'custom', 'webhook']
 const TONS = ['profissional', 'casual', 'técnico', 'amigável']
 const MODOS_ARQUIVO: { value: ModoArquivo; label: string }[] = [
   { value: 'none',     label: '— Nenhum —' },
@@ -21,6 +21,8 @@ const CAPACIDADES_OPCOES = [
   { key: 'executar_webhook',  label: 'Executar webhook' },
   { key: 'receber_arquivo',   label: 'Receber arquivo' },
 ]
+
+type WebhookOut = { id: string; nome: string; url: string; token: string }
 
 interface Props {
   agent?: IaAgent | null
@@ -54,6 +56,22 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
 
+  const _conn = (agent?.integracao_config as Record<string, unknown> | undefined)
+                  ?.connections as Record<string, unknown> | undefined
+  const _wa    = _conn?.whatsapp  as Record<string, unknown> | undefined
+  const _sl    = _conn?.slack     as Record<string, unknown> | undefined
+  const _no    = _conn?.notion    as Record<string, unknown> | undefined
+
+  const [waPhoneId,    setWaPhoneId]    = useState<string>((_wa?.phone_number_id as string) ?? '')
+  const [waToken,      setWaToken]      = useState<string>('')
+  const [slackToken,   setSlackToken]   = useState<string>('')
+  const [slackChannel, setSlackChannel] = useState<string>((_sl?.default_channel as string) ?? '#geral')
+  const [notionKey,    setNotionKey]    = useState<string>('')
+  const [notionDbId,   setNotionDbId]   = useState<string>((_no?.default_database_id as string) ?? '')
+  const [webhooks,     setWebhooks]     = useState<WebhookOut[]>(
+    ((_conn?.webhook_out as WebhookOut[] | undefined) ?? [])
+  )
+
   const zeusExists = agents.some((a) => a.tipo === 'zeus' && a.id !== agent?.id)
   const otherAgents = agents.filter((a) => a.id !== agent?.id)
 
@@ -72,8 +90,24 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
 
     // Store API key in integracao_config (not plain text after save — masked on display)
     const integracao_config: Record<string, unknown> = {}
-    if (apiKey) integracao_config.api_key = apiKey
-    else if (agent?.integracao_config) Object.assign(integracao_config, agent.integracao_config)
+    if (apiKey) {
+      if (integTipo === 'gemini') integracao_config.gemini_api_key = apiKey
+      else integracao_config.api_key = apiKey
+    } else if (agent?.integracao_config) {
+      const { connections: _c, ...rest } = agent.integracao_config as Record<string, unknown> & { connections?: unknown }
+      void _c
+      Object.assign(integracao_config, rest)
+    }
+    const conn: Record<string, unknown> = {}
+    if (waPhoneId && waToken)  conn.whatsapp    = { phone_number_id: waPhoneId, access_token: waToken }
+    if (slackToken)             conn.slack       = { bot_token: slackToken, default_channel: slackChannel || '#geral' }
+    if (notionKey)              conn.notion      = { api_key: notionKey, ...(notionDbId ? { default_database_id: notionDbId } : {}) }
+    if (webhooks.length > 0)   conn.webhook_out  = webhooks
+    if (Object.keys(conn).length > 0) {
+      integracao_config.connections = conn
+    } else if ((agent?.integracao_config as Record<string, unknown> | undefined)?.connections) {
+      integracao_config.connections = (agent!.integracao_config as Record<string, unknown>).connections
+    }
 
     const payload = {
       company_id: companyId,
@@ -210,6 +244,119 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
                 </div>
               </div>
             </div>
+          </div>
+
+          <div className="border-t border-gray-800 pt-4 space-y-3">
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Conexões API</h3>
+
+            {/* WhatsApp Business */}
+            <details className="group">
+              <summary className="flex items-center gap-2 cursor-pointer text-sm text-gray-300 hover:text-white select-none list-none">
+                <span className="text-base">📱</span> WhatsApp Business
+                <span className="ml-auto text-gray-600 group-open:rotate-90 transition-transform">▶</span>
+              </summary>
+              <div className="mt-2 space-y-2 pl-6">
+                <input
+                  type="text" placeholder="Phone Number ID"
+                  value={waPhoneId} onChange={e => setWaPhoneId(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500"
+                />
+                <input
+                  type="password" placeholder="Access Token (não salvo — reescreva para alterar)"
+                  value={waToken} onChange={e => setWaToken(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500"
+                  autoComplete="off"
+                />
+              </div>
+            </details>
+
+            {/* Slack */}
+            <details className="group">
+              <summary className="flex items-center gap-2 cursor-pointer text-sm text-gray-300 hover:text-white select-none list-none">
+                <span className="text-base">💬</span> Slack
+                <span className="ml-auto text-gray-600 group-open:rotate-90 transition-transform">▶</span>
+              </summary>
+              <div className="mt-2 space-y-2 pl-6">
+                <input
+                  type="password" placeholder="Bot Token (xoxb-…) — reescreva para alterar"
+                  value={slackToken} onChange={e => setSlackToken(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500"
+                  autoComplete="off"
+                />
+                <input
+                  type="text" placeholder="Canal padrão (ex: #geral)"
+                  value={slackChannel} onChange={e => setSlackChannel(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500"
+                />
+              </div>
+            </details>
+
+            {/* Notion */}
+            <details className="group">
+              <summary className="flex items-center gap-2 cursor-pointer text-sm text-gray-300 hover:text-white select-none list-none">
+                <span className="text-base">📝</span> Notion
+                <span className="ml-auto text-gray-600 group-open:rotate-90 transition-transform">▶</span>
+              </summary>
+              <div className="mt-2 space-y-2 pl-6">
+                <input
+                  type="password" placeholder="Integration Key (secret_…) — reescreva para alterar"
+                  value={notionKey} onChange={e => setNotionKey(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500"
+                  autoComplete="off"
+                />
+                <input
+                  type="text" placeholder="Database ID padrão (opcional)"
+                  value={notionDbId} onChange={e => setNotionDbId(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500"
+                />
+              </div>
+            </details>
+
+            {/* Webhooks de saída */}
+            <details className="group">
+              <summary className="flex items-center gap-2 cursor-pointer text-sm text-gray-300 hover:text-white select-none list-none">
+                <span className="text-base">🔗</span> Webhooks de Saída
+                <span className="ml-1 text-xs text-gray-600">({webhooks.length})</span>
+                <span className="ml-auto text-gray-600 group-open:rotate-90 transition-transform">▶</span>
+              </summary>
+              <div className="mt-2 space-y-2 pl-6">
+                {webhooks.map((wh, i) => (
+                  <div key={wh.id} className="flex items-center gap-2 bg-gray-800/50 rounded-lg p-2">
+                    <div className="flex-1 space-y-1.5">
+                      <input
+                        type="text" placeholder="Nome"
+                        value={wh.nome}
+                        onChange={e => setWebhooks(prev => prev.map((w, j) => j === i ? { ...w, nome: e.target.value } : w))}
+                        className="w-full px-3 py-1 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-600 focus:outline-none focus:border-brand-500"
+                      />
+                      <input
+                        type="url" placeholder="URL"
+                        value={wh.url}
+                        onChange={e => setWebhooks(prev => prev.map((w, j) => j === i ? { ...w, url: e.target.value } : w))}
+                        className="w-full px-3 py-1 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-600 focus:outline-none focus:border-brand-500"
+                      />
+                      <input
+                        type="password" placeholder="Token (opcional)"
+                        value={wh.token}
+                        onChange={e => setWebhooks(prev => prev.map((w, j) => j === i ? { ...w, token: e.target.value } : w))}
+                        className="w-full px-3 py-1 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-600 focus:outline-none focus:border-brand-500"
+                        autoComplete="off"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setWebhooks(prev => prev.filter((_, j) => j !== i))}
+                      className="text-gray-600 hover:text-red-400 p-1 flex-shrink-0"
+                    >✕</button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setWebhooks(prev => [...prev, { id: crypto.randomUUID(), nome: '', url: '', token: '' }])}
+                  className="text-xs text-brand-400 hover:text-brand-300"
+                >+ Adicionar webhook</button>
+              </div>
+            </details>
           </div>
 
           <div className="border-t border-gray-800 pt-4">
