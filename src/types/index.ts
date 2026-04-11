@@ -5,7 +5,6 @@ export type AgentStatus = 'online' | 'ocupada' | 'aguardando' | 'offline' | 'err
 export type TarefaStatus = 'pendente' | 'em_execucao' | 'concluida' | 'erro' | 'cancelada' | 'aguardando_aprovacao'
 export type TarefaPrioridade = 'baixa' | 'normal' | 'alta' | 'urgente'
 export type MensagemRemetenteTipo = 'humano' | 'ia' | 'sistema' | 'zeus'
-export type ModoArquivo = 'none' | 'texto' | 'pdf' | 'imagem' | 'qualquer'
 
 export interface Company {
   id: string
@@ -56,7 +55,7 @@ export interface IaAgent {
     temperatura: number
     max_tokens: number
   }
-  modo_arquivo: ModoArquivo
+  criado_por?: string
   total_conversas: number
   total_tarefas_concluidas: number
   total_tarefas_erro: number

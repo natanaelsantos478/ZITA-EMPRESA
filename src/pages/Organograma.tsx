@@ -6,7 +6,6 @@ import { useRealtime } from '../hooks/useRealtime'
 import { supabase } from '../lib/supabase'
 import type { IaAgent, IaTarefa } from '../types'
 import CanvasView from '../modules/IAs/Organograma/CanvasView'
-import Office2DView from '../modules/IAs/Organograma/Office2DView'
 import EscritorioView from '../modules/IAs/Escritorio/EscritorioView'
 import Escritorio2D from '../modules/IAs/Escritorio2D/Escritorio2D'
 import Office3DView from '../modules/IAs/Organograma/Office3DView'
@@ -14,15 +13,14 @@ import ControleIAPanel from '../modules/IAs/ControleIA/ControleIAPanel'
 import ChatIA from '../modules/IAs/Chat/ChatIA'
 import ErrorBoundary from '../components/Layout/ErrorBoundary'
 
-type ViewMode = 'canvas' | 'retro' | 'moderno' | 'profissional' | 'salas' | '3d'
+type ViewMode = 'canvas' | 'retro' | 'moderno' | 'profissional' | '3d'
 
 const VIEWS: { mode: ViewMode; label: string }[] = [
-  { mode: 'canvas',       label: 'Canvas'       },
-  { mode: 'profissional', label: '🗺 Escritório' },
-  { mode: 'retro',        label: '🪵 Retrô'     },
-  { mode: 'moderno',      label: '🏢 Moderno'   },
-  { mode: 'salas',        label: '⬛ Salas'      },
-  { mode: '3d',           label: '3D'           },
+  { mode: 'canvas',       label: 'Canvas'          },
+  { mode: 'retro',        label: '🪵 Retrô'        },
+  { mode: 'moderno',      label: '🏢 Moderno'      },
+  { mode: 'profissional', label: '⬛ Profissional'  },
+  { mode: '3d',           label: '3D'              },
 ]
 
 // Wrap any view to guarantee it fills the container
@@ -38,9 +36,9 @@ function ViewSlot({ children }: { children: React.ReactNode }) {
 
 function resolveInitialView(): ViewMode {
   const saved = localStorage.getItem('zita_view_mode')
-  const valid: ViewMode[] = ['canvas', 'retro', 'moderno', 'profissional', 'salas', '3d']
+  const valid: ViewMode[] = ['canvas', 'retro', 'moderno', 'profissional', '3d']
   // Migrate old keys
-  if (saved === '2d' || saved === 'profissional') return 'profissional'
+  if (saved === '2d' || saved === 'salas') return 'profissional'
   return valid.includes(saved as ViewMode) ? (saved as ViewMode) : 'profissional'
 }
 
@@ -142,20 +140,6 @@ export default function Organograma() {
             </ViewSlot>
           )}
 
-          {/* ── Escritório 2D — canvas Zelda-style bonito ─────────────────── */}
-          {view === 'profissional' && (
-            <ViewSlot>
-              <Office2DView
-                key="office2d"
-                agents={agents}
-                tarefasCounts={tarefasCounts}
-                onSelectAgent={handleSelect}
-                onChat={handleChat}
-                selectedId={selectedAgent?.id}
-              />
-            </ViewSlot>
-          )}
-
           {(view === 'retro' || view === 'moderno') && (
             <ViewSlot>
               <EscritorioView
@@ -169,8 +153,8 @@ export default function Organograma() {
             </ViewSlot>
           )}
 
-          {/* ── Salas — visão flat com simulação Sims ─────────────────────── */}
-          {view === 'salas' && (
+          {/* ── Profissional — visão flat com simulação Sims ──────────────── */}
+          {view === 'profissional' && (
             <ViewSlot>
               {companyId
                 ? <Escritorio2D
@@ -197,8 +181,8 @@ export default function Organograma() {
           )}
         </div>
 
-        {/* Side panel — para Office2DView e 3D */}
-        {(view === '3d' || view === 'profissional') && selectedAgent && (
+        {/* Side panel — apenas para 3D */}
+        {view === '3d' && selectedAgent && (
           <ControleIAPanel
             agent={selectedAgent}
             onClose={() => setSelectedAgent(null)}
