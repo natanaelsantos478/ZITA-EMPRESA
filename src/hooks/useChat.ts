@@ -130,18 +130,8 @@ export function useChat(agentId: string) {
       })
 
       if (resp.error) {
-        // Modo demonstração — inserir resposta simulada
-        await supabase.from('ia_mensagens').insert({
-          conversa_id: conversa.id,
-          company_id: companyId,
-          remetente_tipo: 'ia',
-          remetente_nome: 'Zeus',
-          conteudo: 'Recebi sua mensagem. Estou processando sua solicitação.',
-          conteudo_tipo: 'text',
-          metadados: { modo: 'demo' },
-          tokens_prompt: 0,
-          tokens_resposta: 0,
-        })
+        // ia-dispatcher retornou erro — parar typing (sem demo fake)
+        setTyping(false)
       }
     } catch {
       setTyping(false)
