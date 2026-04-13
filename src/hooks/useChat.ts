@@ -97,7 +97,7 @@ export function useChat(agentId: string) {
         remetente_id: profile.id,
         remetente_nome: profile.nome,
         conteudo,
-        conteudo_tipo: 'text',
+        conteudo_tipo: 'texto',
         metadados: {},
         tokens_prompt: 0,
         tokens_resposta: 0,
@@ -130,18 +130,8 @@ export function useChat(agentId: string) {
       })
 
       if (resp.error) {
-        // Modo demonstração — inserir resposta simulada
-        await supabase.from('ia_mensagens').insert({
-          conversa_id: conversa.id,
-          company_id: companyId,
-          remetente_tipo: 'ia',
-          remetente_nome: 'Zeus',
-          conteudo: 'Recebi sua mensagem. Estou processando sua solicitação.',
-          conteudo_tipo: 'text',
-          metadados: { modo: 'demo' },
-          tokens_prompt: 0,
-          tokens_resposta: 0,
-        })
+        console.error('ia-dispatcher error:', resp.error)
+        setTyping(false)
       }
     } catch {
       setTyping(false)
