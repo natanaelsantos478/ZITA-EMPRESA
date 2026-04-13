@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import type { IaAgent, AgentStatus } from '../types'
 import { useAuth } from '../contexts/AuthContext'
@@ -7,6 +7,9 @@ export function useAgentStatus() {
   const { companyId } = useAuth()
   const [agents, setAgents] = useState<IaAgent[]>([])
   const [loading, setLoading] = useState(true)
+  // Unique per-instance suffix prevents "cannot add callbacks after subscribe()" error
+  // when multiple components (Dashboard, Organograma, CanvasView, Escritorio2D) call this hook simultaneously
+  const channelSuffix = useRef(`${Date.now()}-${Math.random().toString(36).slice(2, 7)}`)
 
   useEffect(() => {
     if (!companyId) { setLoading(false); return }
@@ -22,7 +25,7 @@ export function useAgentStatus() {
       })
 
     const channel = supabase
-      .channel(`agents-status-${companyId}`)
+      .channel(`agents-status-${companyId}-${channelSuffix.current}`)
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'ia_agents', filter: `company_id=eq.${companyId}` },
