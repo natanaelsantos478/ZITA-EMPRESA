@@ -12,10 +12,11 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 // listener Realtime no frontend e atualiza o chat.
 // ──────────────────────────────────────────────────────────
 
+// Headers CORS exigidos pelo Supabase JS SDK (envia apikey e x-client-info)
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
 function json(body: unknown, status = 200) {
