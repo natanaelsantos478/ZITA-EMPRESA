@@ -4,23 +4,53 @@ import { supabase } from '../../../lib/supabase'
 import { useAuth } from '../../../contexts/AuthContext'
 import type { IaAgent, AgentTipo, ModoArquivo } from '../../../types'
 
-const INTEGRACOES = ['', 'flowise', 'runway', 'n8n', 'make', 'openai', 'anthropic', 'custom', 'webhook']
+// Zeus: integrações externas
+const ZEUS_INTEGRACOES = ['', 'flowise', 'n8n', 'make', 'runway', 'custom', 'webhook']
+
+// Outros agentes: LLM interno
+const LLM_PROVIDERS = [
+  { value: '',          label: '— Selecionar —'       },
+  { value: 'anthropic', label: 'Anthropic (Claude)'   },
+  { value: 'gemini',    label: 'Google (Gemini)'      },
+  { value: 'openai',    label: 'OpenAI (GPT)'         },
+]
+const MODELS: Record<string, { value: string; label: string }[]> = {
+  anthropic: [
+    { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 — rápido · econômico'  },
+    { value: 'claude-sonnet-4-5',         label: 'Claude Sonnet 4.5 — equilibrado'         },
+    { value: 'claude-opus-4-5',           label: 'Claude Opus 4.5 — avançado'              },
+  ],
+  gemini: [
+    { value: 'gemini-2.0-flash',  label: 'Gemini 2.0 Flash — mais recente'  },
+    { value: 'gemini-1.5-flash',  label: 'Gemini 1.5 Flash — rápido'        },
+    { value: 'gemini-1.5-pro',    label: 'Gemini 1.5 Pro — avançado'        },
+  ],
+  openai: [
+    { value: 'gpt-4o-mini',  label: 'GPT-4o Mini — rápido · econômico' },
+    { value: 'gpt-4o',       label: 'GPT-4o — avançado'                 },
+    { value: 'gpt-4-turbo',  label: 'GPT-4 Turbo'                       },
+    { value: 'o4-mini',      label: 'o4 Mini — raciocínio'              },
+  ],
+}
+
 const TONS = ['profissional', 'casual', 'técnico', 'amigável']
 const MODOS_ARQUIVO: { value: ModoArquivo; label: string }[] = [
-  { value: 'none',     label: '— Nenhum —' },
-  { value: 'texto',    label: 'Texto (.txt, .csv)' },
-  { value: 'pdf',      label: 'PDF' },
-  { value: 'imagem',   label: 'Imagem (.jpg, .png)' },
-  { value: 'qualquer', label: 'Qualquer arquivo' },
+  { value: 'none',     label: '— Nenhum —'            },
+  { value: 'texto',    label: 'Texto (.txt, .csv)'    },
+  { value: 'pdf',      label: 'PDF'                   },
+  { value: 'imagem',   label: 'Imagem (.jpg, .png)'   },
+  { value: 'qualquer', label: 'Qualquer arquivo'       },
 ]
 const CAPACIDADES_OPCOES = [
-  { key: 'enviar_mensagem',   label: 'Enviar mensagem' },
-  { key: 'criar_tarefa',      label: 'Criar tarefa' },
-  { key: 'delegar_tarefa',    label: 'Delegar tarefa' },
+  { key: 'enviar_mensagem',   label: 'Enviar mensagem'   },
+  { key: 'criar_tarefa',      label: 'Criar tarefa'      },
+  { key: 'delegar_tarefa',    label: 'Delegar tarefa'    },
   { key: 'acessar_historico', label: 'Acessar histórico' },
-  { key: 'executar_webhook',  label: 'Executar webhook' },
-  { key: 'receber_arquivo',   label: 'Receber arquivo' },
+  { key: 'executar_webhook',  label: 'Executar webhook'  },
+  { key: 'receber_arquivo',   label: 'Receber arquivo'   },
 ]
+
+type WebhookOut = { id: string; nome: string; url: string; token: string }
 
 interface Props {
   agent?: IaAgent | null
@@ -33,88 +63,134 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
   const { companyId } = useAuth()
   const isEdit = !!agent
 
-  const [nome, setNome] = useState(agent?.nome ?? '')
-  const [funcao, setFuncao] = useState(agent?.funcao ?? '')
-  const [descricao, setDescricao] = useState(agent?.descricao ?? '')
-  const [tipo, setTipo] = useState<AgentTipo>(agent?.tipo ?? 'subordinada')
-  const [cor, setCor] = useState(agent?.cor_hex ?? '#4e5eff')
-  const [integTipo, setIntegTipo] = useState(agent?.integracao_tipo ?? '')
-  const [integUrl, setIntegUrl] = useState(agent?.integracao_url ?? '')
-  const [apiKey, setApiKey] = useState('')
-  const [showKey, setShowKey] = useState(false)
-  const [parentId, setParentId] = useState(agent?.organograma_parent_id ?? '')
-  const [tom, setTom] = useState(agent?.personalidade?.tom ?? 'profissional')
-  const [prompt, setPrompt] = useState(agent?.personalidade?.prompt_sistema ?? '')
+  const existingConfig = (agent?.integracao_config ?? {}) as Record<string, unknown>
+
+  const [nome,       setNome]       = useState(agent?.nome ?? '')
+  const [funcao,     setFuncao]     = useState(agent?.funcao ?? '')
+  const [descricao,  setDescricao]  = useState(agent?.descricao ?? '')
+  const [tipo,       setTipo]       = useState<AgentTipo>(agent?.tipo ?? 'subordinada')
+  const [cor,        setCor]        = useState(agent?.cor_hex ?? '#4e5eff')
+  const [parentId,   setParentId]   = useState(agent?.organograma_parent_id ?? '')
+  const [tom,        setTom]        = useState(agent?.personalidade?.tom ?? 'profissional')
+  const [prompt,     setPrompt]     = useState(agent?.personalidade?.prompt_sistema ?? '')
   const [temperatura, setTemperatura] = useState(agent?.personalidade?.temperatura ?? 0.7)
-  const [maxTokens, setMaxTokens] = useState(agent?.personalidade?.max_tokens ?? 2048)
+  const [maxTokens,  setMaxTokens]  = useState(agent?.personalidade?.max_tokens ?? 2048)
   const [modoArquivo, setModoArquivo] = useState<ModoArquivo>(agent?.modo_arquivo ?? 'none')
   const [caps, setCaps] = useState<Record<string, boolean>>(
     Object.fromEntries(CAPACIDADES_OPCOES.map((c) => [c.key, !!(agent?.capacidades?.[c.key])]))
   )
-  const [loading, setLoading] = useState(false)
-  const [erro, setErro] = useState('')
 
-  const zeusExists = agents.some((a) => a.tipo === 'zeus' && a.id !== agent?.id)
+  // ── Integração (Zeus) / LLM (outros) ─────────────────────────────────────
+  const [integTipo, setIntegTipo] = useState(agent?.integracao_tipo ?? '')
+  const [integUrl,  setIntegUrl]  = useState(agent?.integracao_url ?? '')
+  const [apiKey,    setApiKey]    = useState('')
+  const [showKey,   setShowKey]   = useState(false)
+  const [model,     setModel]     = useState((existingConfig.model as string) ?? '')
+
+  // ── Conexões API (Zeus only) ──────────────────────────────────────────────
+  const _conn = existingConfig?.connections as Record<string, unknown> | undefined
+  const _wa   = _conn?.whatsapp as Record<string, unknown> | undefined
+  const _sl   = _conn?.slack    as Record<string, unknown> | undefined
+  const _no   = _conn?.notion   as Record<string, unknown> | undefined
+
+  const [waPhoneId,    setWaPhoneId]    = useState((_wa?.phone_number_id as string) ?? '')
+  const [waToken,      setWaToken]      = useState('')
+  const [slackToken,   setSlackToken]   = useState('')
+  const [slackChannel, setSlackChannel] = useState((_sl?.default_channel as string) ?? '#geral')
+  const [notionKey,    setNotionKey]    = useState('')
+  const [notionDbId,   setNotionDbId]   = useState((_no?.default_database_id as string) ?? '')
+  const [webhooks,     setWebhooks]     = useState<WebhookOut[]>(
+    (_conn?.webhook_out as WebhookOut[] | undefined) ?? []
+  )
+
+  const [loading, setLoading] = useState(false)
+  const [erro,    setErro]    = useState('')
+
+  const zeusExists  = agents.some((a) => a.tipo === 'zeus' && a.id !== agent?.id)
   const otherAgents = agents.filter((a) => a.id !== agent?.id)
+  const isZeus      = tipo === 'zeus'
+
+  // Reset integration type when switching role
+  const handleTipoChange = (t: AgentTipo) => {
+    setTipo(t)
+    if (t === 'zeus' && !ZEUS_INTEGRACOES.includes(integTipo)) {
+      setIntegTipo(''); setIntegUrl('')
+    } else if (t !== 'zeus' && ZEUS_INTEGRACOES.slice(1).includes(integTipo)) {
+      setIntegTipo(''); setIntegUrl(''); setModel('')
+    }
+  }
 
   const handleSave = async () => {
     if (!nome.trim()) return
-    if (!companyId) {
-      setErro('Empresa não identificada. Faça login novamente.')
-      return
-    }
-    if (tipo === 'zeus' && zeusExists) {
-      setErro('Já existe uma IA do tipo Zeus. Só pode haver uma.')
-      return
-    }
-    setLoading(true)
-    setErro('')
+    if (!companyId) { setErro('Empresa não identificada. Faça login novamente.'); return }
+    if (tipo === 'zeus' && zeusExists) { setErro('Já existe uma IA do tipo Zeus. Só pode haver uma.'); return }
 
-    // Store API key in integracao_config (not plain text after save — masked on display)
+    setLoading(true); setErro('')
+
     const integracao_config: Record<string, unknown> = {}
-    if (apiKey) integracao_config.api_key = apiKey
-    else if (agent?.integracao_config) Object.assign(integracao_config, agent.integracao_config)
+
+    if (apiKey) {
+      if (integTipo === 'gemini') integracao_config.gemini_api_key = apiKey
+      else integracao_config.api_key = apiKey
+    } else if (existingConfig) {
+      const { connections: _c, model: _m, ...rest } = existingConfig as Record<string, unknown> & { connections?: unknown; model?: unknown }
+      void _c; void _m
+      Object.assign(integracao_config, rest)
+    }
+
+    if (model) integracao_config.model = model
+
+    // Conexões: apenas para Zeus
+    if (isZeus) {
+      const conn: Record<string, unknown> = {}
+      if (waPhoneId && waToken)  conn.whatsapp   = { phone_number_id: waPhoneId, access_token: waToken }
+      if (slackToken)             conn.slack      = { bot_token: slackToken, default_channel: slackChannel || '#geral' }
+      if (notionKey)              conn.notion     = { api_key: notionKey, ...(notionDbId ? { default_database_id: notionDbId } : {}) }
+      if (webhooks.length > 0)   conn.webhook_out = webhooks
+
+      if (Object.keys(conn).length > 0) {
+        integracao_config.connections = conn
+      } else if (existingConfig?.connections) {
+        integracao_config.connections = existingConfig.connections
+      }
+    }
 
     const payload = {
-      company_id: companyId,
-      nome: nome.trim(),
-      funcao: funcao.trim() || null,
-      descricao: descricao.trim() || null,
+      company_id:           companyId,
+      nome:                 nome.trim(),
+      funcao:               funcao.trim() || null,
+      descricao:            descricao.trim() || null,
       tipo,
-      cor_hex: cor,
-      integracao_tipo: integTipo || null,
-      integracao_url: integUrl.trim() || null,
+      cor_hex:              cor,
+      integracao_tipo:      integTipo || null,
+      integracao_url:       isZeus ? (integUrl.trim() || null) : null,
       integracao_config,
       organograma_parent_id: parentId || null,
       personalidade: { tom, idioma: 'pt-BR', prompt_sistema: prompt, temperatura, max_tokens: maxTokens },
-      capacidades: caps,
-      modo_arquivo: modoArquivo,
+      capacidades:          caps,
+      modo_arquivo:         modoArquivo,
     }
 
     if (isEdit && agent) {
       const { error } = await supabase.from('ia_agents').update(payload).eq('id', agent.id)
       if (error) { setErro(error.message); setLoading(false); return }
-
-      // Audit log
-      try { await supabase.from('audit_log').insert({ acao: 'editar_ia', detalhes: { id: agent.id, nome: nome.trim() }, sucesso: true }) } catch { /* ignore */ }
+      try { await supabase.from('audit_log').insert({ acao: 'editar_ia', detalhes: { id: agent.id, nome: nome.trim() }, sucesso: true }) } catch { /* */ }
     } else {
       const { error } = await supabase.from('ia_agents').insert({
         ...payload, status: 'offline', organograma_x: 100, organograma_y: 100,
         total_conversas: 0, total_tarefas_concluidas: 0, total_tarefas_erro: 0, uptime_segundos: 0,
       })
       if (error) { setErro(error.message); setLoading(false); return }
-
-      try { await supabase.from('audit_log').insert({ acao: 'criar_ia', detalhes: { nome: nome.trim() }, sucesso: true }) } catch { /* ignore */ }
+      try { await supabase.from('audit_log').insert({ acao: 'criar_ia', detalhes: { nome: nome.trim() }, sucesso: true }) } catch { /* */ }
     }
 
-    setLoading(false)
-    onSaved()
-    onClose()
+    setLoading(false); onSaved(); onClose()
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
       <div className="w-full max-w-lg bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
+
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
           <h2 className="font-bold text-white">{isEdit ? `Editar ${agent.nome}` : 'Nova IA'}</h2>
@@ -129,6 +205,7 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
             <div className="px-3 py-2 bg-red-900/30 border border-red-700/50 rounded-lg text-sm text-red-400">{erro}</div>
           )}
 
+          {/* ── Identidade ─────────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <label className="block text-xs font-medium text-gray-400 mb-1.5">Nome *</label>
@@ -142,9 +219,9 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1.5">Tipo</label>
-              <select value={tipo} onChange={(e) => setTipo(e.target.value as AgentTipo)}
+              <select value={tipo} onChange={(e) => handleTipoChange(e.target.value as AgentTipo)}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-brand-500">
-                <option value="zeus">Zeus (Mestre)</option>
+                <option value="zeus">Zeus (Mestre · Hub)</option>
                 <option value="subordinada">Subordinada</option>
                 <option value="especialista">Especialista</option>
               </select>
@@ -176,42 +253,186 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
             </div>
           </div>
 
-          <div className="border-t border-gray-800 pt-4">
-            <p className="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wide">Integração</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Tipo</label>
-                <select value={integTipo} onChange={(e) => setIntegTipo(e.target.value)}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-brand-500">
-                  {INTEGRACOES.map((i) => <option key={i} value={i}>{i || '— Nenhuma —'}</option>)}
-                </select>
+          {/* ── Zeus: Integração externa ────────────────────────────────────── */}
+          {isZeus && (
+            <div className="border-t border-gray-800 pt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <p className="text-xs font-semibold text-yellow-400 uppercase tracking-wide">Integração Zeus</p>
+                <span className="text-xs bg-yellow-500/10 text-yellow-500/70 border border-yellow-500/20 px-1.5 py-0.5 rounded-full">Hub central · despacha tudo</span>
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">URL</label>
-                <input value={integUrl} onChange={(e) => setIntegUrl(e.target.value)} placeholder="https://…"
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500" />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-xs text-gray-500 mb-1">
-                  API Key {isEdit ? '(deixe vazio para não alterar)' : ''}
-                </label>
-                <div className="relative">
-                  <input
-                    type={showKey ? 'text' : 'password'}
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={isEdit ? '••••••••' : 'sk-…'}
-                    className="w-full px-3 py-2 pr-9 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500"
-                  />
-                  <button type="button" onClick={() => setShowKey(!showKey)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
-                    {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Plataforma</label>
+                    <select value={integTipo} onChange={(e) => setIntegTipo(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-brand-500">
+                      {ZEUS_INTEGRACOES.map((i) => <option key={i} value={i}>{i || '— Nenhuma —'}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">URL</label>
+                    <input value={integUrl} onChange={(e) => setIntegUrl(e.target.value)} placeholder="https://…"
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    API Key {isEdit ? '(deixe vazio para não alterar)' : ''}
+                  </label>
+                  <div className="relative">
+                    <input type={showKey ? 'text' : 'password'} value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder={isEdit ? '••••••••' : 'Bearer token ou sk-…'}
+                      className="w-full px-3 py-2 pr-9 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500" />
+                    <button type="button" onClick={() => setShowKey(!showKey)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                      {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
 
+          {/* ── Zeus: Conexões API ──────────────────────────────────────────── */}
+          {isZeus && (
+            <div className="border-t border-gray-800 pt-4 space-y-3">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Conexões API</h3>
+
+              {/* WhatsApp Business */}
+              <details className="group">
+                <summary className="flex items-center gap-2 cursor-pointer text-sm text-gray-300 hover:text-white select-none list-none">
+                  <span className="text-base">📱</span> WhatsApp Business
+                  <span className="ml-auto text-gray-600 group-open:rotate-90 transition-transform">▶</span>
+                </summary>
+                <div className="mt-2 space-y-2 pl-6">
+                  <input type="text" placeholder="Phone Number ID"
+                    value={waPhoneId} onChange={e => setWaPhoneId(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500" />
+                  <input type="password" placeholder="Access Token (reescreva para alterar)"
+                    value={waToken} onChange={e => setWaToken(e.target.value)} autoComplete="off"
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500" />
+                </div>
+              </details>
+
+              {/* Slack */}
+              <details className="group">
+                <summary className="flex items-center gap-2 cursor-pointer text-sm text-gray-300 hover:text-white select-none list-none">
+                  <span className="text-base">💬</span> Slack
+                  <span className="ml-auto text-gray-600 group-open:rotate-90 transition-transform">▶</span>
+                </summary>
+                <div className="mt-2 space-y-2 pl-6">
+                  <input type="password" placeholder="Bot Token (xoxb-…)" value={slackToken}
+                    onChange={e => setSlackToken(e.target.value)} autoComplete="off"
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500" />
+                  <input type="text" placeholder="Canal padrão (ex: #geral)"
+                    value={slackChannel} onChange={e => setSlackChannel(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500" />
+                </div>
+              </details>
+
+              {/* Notion */}
+              <details className="group">
+                <summary className="flex items-center gap-2 cursor-pointer text-sm text-gray-300 hover:text-white select-none list-none">
+                  <span className="text-base">📝</span> Notion
+                  <span className="ml-auto text-gray-600 group-open:rotate-90 transition-transform">▶</span>
+                </summary>
+                <div className="mt-2 space-y-2 pl-6">
+                  <input type="password" placeholder="Integration Key (secret_…)" value={notionKey}
+                    onChange={e => setNotionKey(e.target.value)} autoComplete="off"
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500" />
+                  <input type="text" placeholder="Database ID padrão (opcional)"
+                    value={notionDbId} onChange={e => setNotionDbId(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500" />
+                </div>
+              </details>
+
+              {/* Webhooks de saída */}
+              <details className="group">
+                <summary className="flex items-center gap-2 cursor-pointer text-sm text-gray-300 hover:text-white select-none list-none">
+                  <span className="text-base">🔗</span> Webhooks de Saída
+                  <span className="ml-1 text-xs text-gray-600">({webhooks.length})</span>
+                  <span className="ml-auto text-gray-600 group-open:rotate-90 transition-transform">▶</span>
+                </summary>
+                <div className="mt-2 space-y-2 pl-6">
+                  {webhooks.map((wh, i) => (
+                    <div key={wh.id} className="flex items-center gap-2 bg-gray-800/50 rounded-lg p-2">
+                      <div className="flex-1 space-y-1.5">
+                        <input type="text" placeholder="Nome" value={wh.nome}
+                          onChange={e => setWebhooks(prev => prev.map((w, j) => j === i ? { ...w, nome: e.target.value } : w))}
+                          className="w-full px-3 py-1 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-600 focus:outline-none focus:border-brand-500" />
+                        <input type="url" placeholder="URL" value={wh.url}
+                          onChange={e => setWebhooks(prev => prev.map((w, j) => j === i ? { ...w, url: e.target.value } : w))}
+                          className="w-full px-3 py-1 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-600 focus:outline-none focus:border-brand-500" />
+                        <input type="password" placeholder="Token (opcional)" value={wh.token}
+                          onChange={e => setWebhooks(prev => prev.map((w, j) => j === i ? { ...w, token: e.target.value } : w))}
+                          autoComplete="off"
+                          className="w-full px-3 py-1 bg-gray-800 border border-gray-700 rounded-lg text-xs text-white placeholder-gray-600 focus:outline-none focus:border-brand-500" />
+                      </div>
+                      <button type="button" onClick={() => setWebhooks(prev => prev.filter((_, j) => j !== i))}
+                        className="text-gray-600 hover:text-red-400 p-1 flex-shrink-0">✕</button>
+                    </div>
+                  ))}
+                  <button type="button"
+                    onClick={() => setWebhooks(prev => [...prev, { id: crypto.randomUUID(), nome: '', url: '', token: '' }])}
+                    className="text-xs text-brand-400 hover:text-brand-300">+ Adicionar webhook</button>
+                </div>
+              </details>
+            </div>
+          )}
+
+          {/* ── Não-Zeus: Modelo de IA interno ─────────────────────────────── */}
+          {!isZeus && (
+            <div className="border-t border-gray-800 pt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <p className="text-xs font-semibold text-brand-400 uppercase tracking-wide">Modelo de IA</p>
+                <span className="text-xs text-gray-600">hospedado internamente · gerenciado pelo Zeus</span>
+              </div>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Provedor</label>
+                    <select value={integTipo}
+                      onChange={(e) => { setIntegTipo(e.target.value); setModel('') }}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-brand-500">
+                      {LLM_PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Modelo</label>
+                    <select value={model} onChange={(e) => setModel(e.target.value)}
+                      disabled={!integTipo || !MODELS[integTipo]}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:border-brand-500 disabled:opacity-40">
+                      <option value="">— {integTipo ? 'Selecionar' : 'Escolha o provedor'} —</option>
+                      {(MODELS[integTipo] ?? []).map((m) => (
+                        <option key={m.value} value={m.value}>{m.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    API Key {isEdit ? '(deixe vazio para não alterar)' : ''}
+                  </label>
+                  <div className="relative">
+                    <input type={showKey ? 'text' : 'password'} value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder={isEdit ? '••••••••' : integTipo === 'gemini' ? 'AIza…' : 'sk-…'}
+                      className="w-full px-3 py-2 pr-9 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-brand-500" />
+                    <button type="button" onClick={() => setShowKey(!showKey)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                      {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  {integTipo && !apiKey && !isEdit && (
+                    <p className="text-xs text-amber-500/70 mt-1">A API Key é necessária para este agente funcionar</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Personalidade ───────────────────────────────────────────────── */}
           <div className="border-t border-gray-800 pt-4">
             <p className="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wide">Personalidade</p>
             <div className="space-y-3">
@@ -245,6 +466,7 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
             </div>
           </div>
 
+          {/* ── Recebimento de Arquivos ─────────────────────────────────────── */}
           <div className="border-t border-gray-800 pt-4">
             <p className="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wide">Recebimento de Arquivos</p>
             <select value={modoArquivo} onChange={(e) => setModoArquivo(e.target.value as ModoArquivo)}
@@ -253,17 +475,15 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
             </select>
           </div>
 
+          {/* ── Funcionalidades ─────────────────────────────────────────────── */}
           <div className="border-t border-gray-800 pt-4">
             <p className="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wide">Funcionalidades</p>
             <div className="grid grid-cols-2 gap-2">
               {CAPACIDADES_OPCOES.map((c) => (
                 <label key={c.key} className="flex items-center gap-2 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={caps[c.key] ?? false}
+                  <input type="checkbox" checked={caps[c.key] ?? false}
                     onChange={(e) => setCaps((prev) => ({ ...prev, [c.key]: e.target.checked }))}
-                    className="w-4 h-4 rounded text-brand-500 border-gray-600 bg-gray-800 focus:ring-brand-500"
-                  />
+                    className="w-4 h-4 rounded text-brand-500 border-gray-600 bg-gray-800 focus:ring-brand-500" />
                   <span className="text-xs text-gray-400 group-hover:text-gray-200">{c.label}</span>
                 </label>
               ))}
@@ -273,10 +493,12 @@ export default function IAModal({ agent, agents, onClose, onSaved }: Props) {
 
         {/* Footer */}
         <div className="flex gap-3 px-5 py-4 border-t border-gray-800">
-          <button onClick={onClose} className="flex-1 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium rounded-lg transition-colors">
+          <button onClick={onClose}
+            className="flex-1 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium rounded-lg transition-colors">
             Cancelar
           </button>
-          <button onClick={handleSave} disabled={loading || !nome.trim()} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors">
+          <button onClick={handleSave} disabled={loading || !nome.trim()}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors">
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             {loading ? 'Salvando…' : isEdit ? 'Salvar alterações' : 'Criar IA'}
           </button>

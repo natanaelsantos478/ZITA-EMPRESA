@@ -9,8 +9,7 @@ import CanvasView from '../modules/IAs/Organograma/CanvasView'
 import EscritorioView from '../modules/IAs/Escritorio/EscritorioView'
 import Escritorio2D from '../modules/IAs/Escritorio2D/Escritorio2D'
 import Office3DView from '../modules/IAs/Organograma/Office3DView'
-import ControleIAPanel from '../modules/IAs/ControleIA/ControleIAPanel'
-import ChatIA from '../modules/IAs/Chat/ChatIA'
+import AgentPanel from '../modules/IAs/AgentPanel/AgentPanel'
 import ErrorBoundary from '../components/Layout/ErrorBoundary'
 
 type ViewMode = 'canvas' | 'retro' | 'moderno' | 'profissional' | '3d'
@@ -48,7 +47,6 @@ export default function Organograma() {
 
   const [view, setView]               = useState<ViewMode>(resolveInitialView)
   const [selectedAgent, setSelectedAgent] = useState<IaAgent | null>(null)
-  const [chatAgent, setChatAgent]         = useState<IaAgent | null>(null)
   const [tarefasCounts, setTarefasCounts] = useState<Record<string, number>>({})
 
   useEffect(() => {
@@ -88,7 +86,7 @@ export default function Organograma() {
   }, [])
 
   const handleSelect = useCallback((a: IaAgent) => setSelectedAgent(a), [])
-  const handleChat   = useCallback((a: IaAgent) => { setChatAgent(a); setSelectedAgent(null) }, [])
+  const handleChat   = useCallback((a: IaAgent) => setSelectedAgent(a), [])
 
   if (loading) {
     return (
@@ -176,17 +174,14 @@ export default function Organograma() {
           )}
         </div>
 
-        {/* Side panel — 3D only */}
-        {view === '3d' && selectedAgent && (
-          <ControleIAPanel
+        {/* Side panel — retro/moderno/3D; canvas and profissional manage their own */}
+        {(view === 'retro' || view === 'moderno' || view === '3d') && selectedAgent && (
+          <AgentPanel
             agent={selectedAgent}
             onClose={() => setSelectedAgent(null)}
-            onChat={() => handleChat(selectedAgent)}
           />
         )}
       </div>
-
-      {chatAgent && <ChatIA agent={chatAgent} onClose={() => setChatAgent(null)} />}
     </div>
   )
 }

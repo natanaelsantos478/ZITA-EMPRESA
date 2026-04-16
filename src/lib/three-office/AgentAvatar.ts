@@ -7,25 +7,8 @@ import type { IaAgent } from '../../types'
 import { DESK_POSITIONS } from './OfficeScene'
 
 // ─── Animation constants ──────────────────────────────────────────────────
-const IDLE_BOB_SPEED   = 1.4
-const IDLE_BOB_RANGE   = 0.018
-const ACTIVE_BOB_SPEED = 3.5
-const ACTIVE_BOB_RANGE = 0.04
-const TASK_MIN_MS      = 5000
-const TASK_MAX_MS      = 15000
-const SPEECH_DURATION  = 6000
-
-const TASK_MESSAGES = [
-  'Processando dados...',
-  'Analisando relatório...',
-  'Respondendo consulta...',
-  'Executando tarefa...',
-  'Gerando resposta...',
-  'Verificando dados...',
-  'Calculando métricas...',
-  'Sincronizando...',
-  'Otimizando processo...',
-]
+const IDLE_BOB_SPEED = 1.4
+const IDLE_BOB_RANGE = 0.018
 
 // ─── Color utilities ──────────────────────────────────────────────────────
 
@@ -55,7 +38,6 @@ export class AgentAvatar {
 
   private scene:   THREE.Scene
   private color:   number
-  private _status: 'idle' | 'active' | 'done' = 'idle'
   private _meshes: THREE.Mesh[] = []
 
   // Animation targets
@@ -66,13 +48,6 @@ export class AgentAvatar {
 
   // HTML overlays
   private _nameTagDiv!: HTMLDivElement
-  private _speechDiv!:  HTMLDivElement
-  private _speechText!: HTMLElement
-  private _speechVisible = false
-
-  // Timers
-  private _speechTimeout: ReturnType<typeof setTimeout> | null = null
-  private _taskTimeout:   ReturnType<typeof setTimeout> | null = null
 
   constructor(scene: THREE.Scene, agent: IaAgent, index: number) {
     this.scene   = scene
@@ -87,9 +62,7 @@ export class AgentAvatar {
     scene.add(this.group)
 
     this._buildBody(agent)
-    this._buildSpeechBubble()
     this._buildNameTag(agent)
-    this._scheduleNextTask()
   }
 
   // ─── Body construction ────────────────────────────────────────────────
@@ -202,17 +175,6 @@ export class AgentAvatar {
 
   // ─── HTML overlays ────────────────────────────────────────────────────
 
-  private _buildSpeechBubble(): void {
-    const div = document.createElement('div')
-    div.className = 'zita-speech-bubble'
-    div.style.display = 'none'
-    div.innerHTML = `<span class="zita-speech-text"></span>`
-    document.body.appendChild(div)
-    this._speechDiv  = div
-    this._speechText = div.querySelector('.zita-speech-text')!
-    this._injectStyles()
-  }
-
   private _buildNameTag(agent: IaAgent): void {
     const div = document.createElement('div')
     div.className = 'zita-name-tag'
@@ -222,6 +184,7 @@ export class AgentAvatar {
     `
     document.body.appendChild(div)
     this._nameTagDiv = div
+    this._injectStyles()
   }
 
   private _injectStyles(): void {
@@ -261,43 +224,6 @@ export class AgentAvatar {
         border-radius: 8px;
         white-space: nowrap;
       }
-      .zita-speech-bubble {
-        position: fixed;
-        max-width: 200px;
-        pointer-events: none;
-        transform: translate(-50%, -100%);
-        z-index: 51;
-      }
-      .zita-speech-text {
-        display: block;
-        font-family: 'Segoe UI', system-ui, sans-serif;
-        font-size: 0.72rem;
-        color: #e8eaf0;
-        background: rgba(20,26,40,0.93);
-        padding: 5px 10px;
-        border-radius: 10px;
-        border: 1px solid rgba(74,158,255,0.35);
-        backdrop-filter: blur(6px);
-        white-space: normal;
-        line-height: 1.35;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.5);
-        text-align: center;
-        animation: zitaBubblePop 0.2s ease;
-      }
-      @keyframes zitaBubblePop {
-        from { transform: scale(0.85); opacity: 0; }
-        to   { transform: scale(1);    opacity: 1; }
-      }
-      .zita-speech-bubble::after {
-        content: '';
-        display: block;
-        width: 0;
-        height: 0;
-        border-left: 6px solid transparent;
-        border-right: 6px solid transparent;
-        border-top: 8px solid rgba(20,26,40,0.93);
-        margin: 0 auto;
-      }
     `
     document.head.appendChild(style)
   }
@@ -307,11 +233,9 @@ export class AgentAvatar {
   /** Call every frame after rendering to reposition HTML overlays */
   updateHTML(camera: THREE.Camera, canvas: HTMLElement): void {
     const rect = canvas.getBoundingClientRect()
-
     const namePos = this.group.position.clone()
     namePos.y += 2.1
     const np = this._project(camera, namePos, rect)
-
     if (np.visible) {
       this._nameTagDiv.style.display = 'flex'
       this._nameTagDiv.style.left = np.x + 'px'
@@ -319,44 +243,19 @@ export class AgentAvatar {
     } else {
       this._nameTagDiv.style.display = 'none'
     }
-
-    if (this._speechVisible) {
-      const bubblePos = this.group.position.clone()
-      bubblePos.y += 2.6
-      const bp = this._project(camera, bubblePos, rect)
-      if (bp.visible) {
-        this._speechDiv.style.display = 'block'
-        this._speechDiv.style.left = bp.x + 'px'
-        this._speechDiv.style.top  = bp.y + 'px'
-      } else {
-        this._speechDiv.style.display = 'none'
-      }
-    }
   }
 
   /** Call every frame to advance animations */
   update(_delta: number, elapsed: number): void {
-    const isActive = this._status === 'active'
-    const speed    = isActive ? ACTIVE_BOB_SPEED : IDLE_BOB_SPEED
-    const range    = isActive ? ACTIVE_BOB_RANGE : IDLE_BOB_RANGE
-
-    const bob = Math.sin(elapsed * speed) * range
+    const bob = Math.sin(elapsed * IDLE_BOB_SPEED) * IDLE_BOB_RANGE
     if (this._body) this._body.position.y = 1.12 + bob
     if (this._head) {
       this._head.position.y = 1.65 + bob * 0.5
       this._head.rotation.y = Math.sin(elapsed * 0.4) * 0.06
     }
-
     if (this._armL && this._armR) {
-      if (isActive) {
-        const tL =  Math.sin(elapsed * ACTIVE_BOB_SPEED * 1.3) * 0.15
-        const tR = -Math.sin(elapsed * ACTIVE_BOB_SPEED * 1.3) * 0.15
-        this._armL.rotation.x = tL
-        this._armR.rotation.x = tR
-      } else {
-        this._armL.rotation.x = Math.sin(elapsed * 0.5) * 0.02
-        this._armR.rotation.x = Math.sin(elapsed * 0.5 + 1) * 0.02
-      }
+      this._armL.rotation.x = Math.sin(elapsed * 0.5) * 0.02
+      this._armR.rotation.x = Math.sin(elapsed * 0.5 + 1) * 0.02
     }
   }
 
@@ -369,11 +268,8 @@ export class AgentAvatar {
   // ─── Cleanup ──────────────────────────────────────────────────────────
 
   dispose(): void {
-    if (this._taskTimeout)   clearTimeout(this._taskTimeout)
-    if (this._speechTimeout) clearTimeout(this._speechTimeout)
     this.scene.remove(this.group)
     this._nameTagDiv.remove()
-    this._speechDiv.remove()
   }
 
   // ─── Private helpers ──────────────────────────────────────────────────
@@ -392,29 +288,4 @@ export class AgentAvatar {
     return { x, y, visible }
   }
 
-  private _scheduleNextTask(): void {
-    const delay = TASK_MIN_MS + Math.random() * (TASK_MAX_MS - TASK_MIN_MS)
-    this._taskTimeout = setTimeout(() => this._executeTask(), delay)
-  }
-
-  private _executeTask(): void {
-    this._status = 'active'
-    const msg = TASK_MESSAGES[Math.floor(Math.random() * TASK_MESSAGES.length)]
-
-    this._speechText.textContent = msg
-    this._speechDiv.style.display = 'block'
-    this._speechVisible = true
-
-    if (this._speechTimeout) clearTimeout(this._speechTimeout)
-    this._speechTimeout = setTimeout(() => {
-      this._status = 'done'
-      this._speechVisible = false
-      this._speechDiv.style.display = 'none'
-
-      setTimeout(() => {
-        this._status = 'idle'
-        this._scheduleNextTask()
-      }, 1500)
-    }, SPEECH_DURATION)
-  }
 }

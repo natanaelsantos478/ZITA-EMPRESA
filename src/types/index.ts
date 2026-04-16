@@ -1,5 +1,5 @@
 export type CompanyStatus = 'ativo' | 'suspenso' | 'cancelado'
-export type UserRole = 'owner' | 'admin' | 'operator' | 'viewer'
+export type UserRole = 'gestor' | 'owner' | 'admin' | 'operator' | 'viewer'
 export type AgentTipo = 'zeus' | 'subordinada' | 'especialista'
 export type AgentStatus = 'online' | 'ocupada' | 'aguardando' | 'offline' | 'erro' | 'pausada'
 export type TarefaStatus = 'pendente' | 'em_execucao' | 'concluida' | 'erro' | 'cancelada' | 'aguardando_aprovacao'

@@ -11,6 +11,9 @@ interface AuthContextValue {
   role: UserRole
   loading: boolean
   isAdmin: boolean
+  isGestor: boolean
+  /** Retorna o JWT de sessão atual (necessário para chamar Edge Functions) */
+  getSessionToken: () => Promise<string | null>
   signIn: (loginOrEmail: string, senha: string) => Promise<{ error?: string }>
   signOut: () => Promise<void>
 }
@@ -119,11 +122,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const companyId = profile?.company_id ?? null
-  const role: UserRole = profile?.role ?? 'viewer'
-  const isAdmin = role === 'owner' || role === 'admin'
+  const role: UserRole = (profile?.role ?? 'viewer') as UserRole
+  const isAdmin  = role === 'owner' || role === 'admin'
+  const isGestor = role === 'gestor'
+
+  const getSessionToken = async (): Promise<string | null> => {
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token ?? null
+  }
 
   return (
-    <AuthContext.Provider value={{ user, profile, companyId, role, loading, isAdmin, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, profile, companyId, role, loading, isAdmin, isGestor, getSessionToken, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   )
