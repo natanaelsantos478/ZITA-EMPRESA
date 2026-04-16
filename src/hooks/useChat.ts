@@ -128,7 +128,7 @@ export function useChat(agentId: string) {
         remetente_id: prof.id,
         remetente_nome: prof.nome,
         conteudo,
-        conteudo_tipo: 'text',
+        conteudo_tipo: 'texto',
         metadados: {},
         tokens_prompt: 0,
         tokens_resposta: 0,

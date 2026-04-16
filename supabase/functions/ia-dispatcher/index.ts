@@ -27,7 +27,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
 }
 
 type HistMsg = { role: 'user' | 'assistant'; content: string }
@@ -261,7 +261,7 @@ serve(async (req: Request) => {
       remetente_tipo: 'ia',
       remetente_nome: agent.nome,
       conteudo:       respostaTexto || '…',
-      conteudo_tipo:  'text',
+      conteudo_tipo:  'texto',
       metadados:      { tipo_integracao: tipo || 'auto', via_zeus: routeViaZeus },
       tokens_prompt:  0,
       tokens_resposta: 0,
