@@ -34,33 +34,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (data) setProfile(data as Profile)
   }, [])
 
-  // DEV BYPASS — auto-login quando VITE_DEV_BYPASS=true no .env.local
-  // Preencha VITE_DEV_BYPASS_EMAIL e VITE_DEV_BYPASS_PASSWORD no .env.local
   useEffect(() => {
-    if (import.meta.env.VITE_DEV_BYPASS !== 'true') return
-    const email    = import.meta.env.VITE_DEV_BYPASS_EMAIL as string | undefined
-    const password = import.meta.env.VITE_DEV_BYPASS_PASSWORD as string | undefined
-    if (!email || !password || password === 'sua_senha_aqui') return
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        supabase.auth.signInWithPassword({ email, password })
-          .then(({ data }) => { if (data.user) fetchProfile(data.user.id) })
-      }
-    })
-  }, [fetchProfile])
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      if (session?.user) fetchProfile(session.user.id)
-      setLoading(false)
-    })
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
+    // onAuthStateChange fires on mount with INITIAL_SESSION, so no need for a separate getSession() call.
+    // We await fetchProfile before clearing loading so profile is always ready when loading becomes false.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
-        fetchProfile(session.user.id)
+        setUser(session.user)
+        await fetchProfile(session.user.id)
       } else {
+        setUser(null)
         setProfile(null)
       }
       setLoading(false)

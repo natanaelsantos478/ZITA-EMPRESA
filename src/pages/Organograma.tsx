@@ -172,15 +172,15 @@ export default function Organograma() {
               />
             </ViewSlot>
           )}
-        </div>
 
-        {/* Side panel — retro/moderno/3D; canvas and profissional manage their own */}
-        {(view === 'retro' || view === 'moderno' || view === '3d') && selectedAgent && (
-          <AgentPanel
-            agent={selectedAgent}
-            onClose={() => setSelectedAgent(null)}
-          />
-        )}
+          {/* Side panel inside the relative container so absolute positioning works correctly */}
+          {(view === 'retro' || view === 'moderno' || view === '3d') && selectedAgent && (
+            <AgentPanel
+              agent={selectedAgent}
+              onClose={() => setSelectedAgent(null)}
+            />
+          )}
+        </div>
       </div>
     </div>
   )

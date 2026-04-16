@@ -113,9 +113,9 @@ export default function Login() {
     const { error: signInError } = await signIn(login, password)
 
     if (signInError) {
+      localStorage.setItem(LOCKOUT_KEY, Date.now().toString())
       setError(signInError)
-      const remaining = getLockoutRemaining()
-      if (remaining > 0) setLockoutSeconds(remaining)
+      setLockoutSeconds(getLockoutRemaining())
     } else {
       if (rememberLogin) {
         localStorage.setItem(SAVED_KEY, JSON.stringify({ login, password }))
