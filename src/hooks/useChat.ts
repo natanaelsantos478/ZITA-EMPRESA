@@ -10,15 +10,24 @@ export function useChat(agentId: string) {
   const [loading, setLoading] = useState(false)
   const [typing, setTyping] = useState(false)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
-  // Ref ensures sendMessage always has the latest conversa without stale closure issues
   const conversaRef = useRef<IaConversa | null>(null)
 
+  // Refs for auth values — avoids recreating callbacks on token refresh
+  const userRef    = useRef(user)
+  const profileRef = useRef(profile)
+  const companyIdRef = useRef(companyId)
+  useEffect(() => { userRef.current    = user },    [user])
+  useEffect(() => { profileRef.current = profile }, [profile])
+  useEffect(() => { companyIdRef.current = companyId }, [companyId])
+
   const createConversa = useCallback(async (): Promise<IaConversa | null> => {
-    if (!companyId || !user) return null
+    const cid = companyIdRef.current
+    const uid = userRef.current
+    if (!cid || !uid) return null
 
     const { data: conv, error } = await supabase
       .from('ia_conversas')
-      .insert({ company_id: companyId, agent_id: agentId, iniciada_por: user.id, status: 'ativa', contexto: {} })
+      .insert({ company_id: cid, agent_id: agentId, iniciada_por: uid.id, status: 'ativa', contexto: {} })
       .select()
       .single()
 
@@ -29,7 +38,7 @@ export function useChat(agentId: string) {
       const { data: existing } = await supabase
         .from('ia_conversas')
         .select('*')
-        .eq('company_id', companyId)
+        .eq('company_id', cid)
         .eq('agent_id', agentId)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -37,10 +46,10 @@ export function useChat(agentId: string) {
       return (existing as IaConversa) ?? null
     }
     return null
-  }, [companyId, user, agentId])
+  }, [agentId])
 
   const initConversa = useCallback(async () => {
-    if (!companyId || !user) return
+    if (!companyIdRef.current || !userRef.current) return
     setLoading(true)
     const conv = await createConversa()
     if (conv) {
@@ -49,7 +58,7 @@ export function useChat(agentId: string) {
       setMensagens([])
     }
     setLoading(false)
-  }, [companyId, user, agentId, createConversa])
+  }, [agentId, createConversa])
 
   const loadConversa = useCallback(async (conversaId: string) => {
     setLoading(true)
@@ -97,9 +106,10 @@ export function useChat(agentId: string) {
   }, [conversa?.id])
 
   const sendMessage = useCallback(async (conteudo: string) => {
-    if (!companyId || !profile || !user) return
+    const cid     = companyIdRef.current
+    const prof    = profileRef.current
+    if (!cid || !prof || !userRef.current) return
 
-    // Use ref for immediate access — state update may lag behind
     let activeConversa = conversaRef.current ?? conversa
     if (!activeConversa) {
       const newConv = await createConversa()
@@ -109,15 +119,14 @@ export function useChat(agentId: string) {
       activeConversa = newConv
     }
 
-    // Inserir mensagem humana
     const { data: msgHumana, error: msgErr } = await supabase
       .from('ia_mensagens')
       .insert({
         conversa_id: activeConversa.id,
-        company_id: companyId,
+        company_id: cid,
         remetente_tipo: 'humano',
-        remetente_id: profile.id,
-        remetente_nome: profile.nome,
+        remetente_id: prof.id,
+        remetente_nome: prof.nome,
         conteudo,
         conteudo_tipo: 'text',
         metadados: {},
@@ -138,7 +147,6 @@ export function useChat(agentId: string) {
 
     setTyping(true)
 
-    // Chamar ia-dispatcher via Edge Function
     try {
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData.session?.access_token
@@ -148,7 +156,7 @@ export function useChat(agentId: string) {
           conversa_id: activeConversa.id,
           agent_id: agentId,
           mensagem: conteudo,
-          company_id: companyId,
+          company_id: cid,
         },
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
@@ -157,7 +165,7 @@ export function useChat(agentId: string) {
     } catch {
       setTyping(false)
     }
-  }, [conversa, companyId, profile, user, agentId, createConversa])
+  }, [conversa, agentId, createConversa])
 
   return { conversa, mensagens, loading, typing, initConversa, loadConversa, sendMessage }
 }
