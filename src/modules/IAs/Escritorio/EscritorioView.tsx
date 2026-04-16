@@ -12,6 +12,7 @@ interface Props {
   onSelectAgent:  (a: IaAgent) => void
   onChat:         (a: IaAgent) => void
   selectedId?:    string
+  initialTheme?:  ThemeName
 }
 
 // ─── Layout & Inventory options ───────────────────────────────────────────────
@@ -75,14 +76,14 @@ function generateDefaultFurniture(): FurnitureItem[] {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function EscritorioView({
-  agents, tarefasCounts, onSelectAgent, onChat,
+  agents, tarefasCounts, onSelectAgent, onChat, initialTheme,
 }: Props) {
   const { companyId } = useAuth()
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const lsKey     = `${companyId ?? 'zita'}_escritorio`
 
   const [theme, setTheme] = useState<ThemeName>(() =>
-    (localStorage.getItem(`${lsKey}_theme`) as ThemeName | null) ?? 'retro'
+    initialTheme ?? (localStorage.getItem(`${lsKey}_theme`) as ThemeName | null) ?? 'retro'
   )
   const [bgLight, setBgLight] = useState(() =>
     localStorage.getItem(`${lsKey}_bglight`) === 'true'
@@ -130,7 +131,7 @@ export default function EscritorioView({
   const cursor = placingType ? 'crosshair' : 'grab'
 
   return (
-    <div className="relative flex flex-col w-full h-full overflow-hidden bg-gray-950">
+    <div className="relative flex flex-col w-full flex-1 overflow-hidden bg-gray-950">
       {/* ── Toolbar ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900 border-b border-gray-800 flex-shrink-0 z-10 gap-2">
         {/* Layout selector */}

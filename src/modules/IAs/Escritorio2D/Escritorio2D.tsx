@@ -5,8 +5,7 @@ import { useAgentStatus } from '../../../hooks/useAgentStatus'
 import type { IaAgent } from '../../../types'
 import Personagem2D, { AGENT_CIRCLE_CX_OFFSET, AGENT_CIRCLE_CY_OFFSET } from './Personagem2D'
 import Sala2D, { type SalaConfig } from './Sala2D'
-import ControleIAPanel from '../ControleIA/ControleIAPanel'
-import ChatIA from '../Chat/ChatIA'
+import AgentPanel from '../AgentPanel/AgentPanel'
 import { DeskIcon, ChairIcon } from './FurnitureIcons'
 import { useAgentSimulation, type FurnitureItem, type FurnitureMap } from './useAgentSimulation'
 
@@ -150,7 +149,6 @@ export default function Escritorio2D() {
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [selectedAgent, setSelectedAgent] = useState<IaAgent | null>(null)
-  const [chatAgent,     setChatAgent]     = useState<IaAgent | null>(null)
   const [showSalaModal, setShowSalaModal] = useState(false)
   const [editingSala,   setEditingSala]   = useState<SalaConfig | null>(null)
 
@@ -298,7 +296,7 @@ export default function Escritorio2D() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="relative w-full h-full overflow-hidden" style={{ backgroundColor: '#0f1117' }}>
+    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', backgroundColor: '#0b0d13' }}>
 
       {/* ── Toolbar de admin ─────────────────────────────────────────────── */}
       {isAdmin && (
@@ -553,13 +551,11 @@ export default function Escritorio2D() {
 
       {/* ── Panels ─────────────────────────────────────────────────────────── */}
       {selectedAgent && (
-        <ControleIAPanel
+        <AgentPanel
           agent={selectedAgent}
           onClose={() => setSelectedAgent(null)}
-          onChat={() => setChatAgent(selectedAgent)}
         />
       )}
-      {chatAgent && <ChatIA agent={chatAgent} onClose={() => setChatAgent(null)} />}
       {showSalaModal && (
         <SalaModal onSave={addSala} onClose={() => setShowSalaModal(false)} />
       )}
