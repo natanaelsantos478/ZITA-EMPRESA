@@ -154,13 +154,6 @@ export default function Escritorio2D() {
   const [showSalaModal, setShowSalaModal] = useState(false)
   const [editingSala,   setEditingSala]   = useState<SalaConfig | null>(null)
 
-  // ── Ticker para expirar balões de chat ─────────────────────────────────────
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 500)
-    return () => clearInterval(id)
-  }, [])
-
   // ── Simulação Sims-like ────────────────────────────────────────────────────
   const { simStates } = useAgentSimulation({
     agents,
@@ -447,14 +440,8 @@ export default function Escritorio2D() {
                     const sim = simStates[agent.id]
                     if (!pos) return null
 
-                    // Usar posição simulada ou posição canônica
-                    const absX = sim ? sim.targetX : pos.x
-                    const absY = sim ? sim.targetY : pos.y
-                    const relX = absX - sala.x
-                    const relY = absY - sala.y - 28 /* title bar */
-
-                    const isMoving = sim?.state !== 'SITTING' && sim?.state !== undefined
-                    const hasBubble = !!(sim?.chatMessage && sim.chatExpiry && now < sim.chatExpiry)
+                    const relX = (sim ? sim.targetX : pos.x) - sala.x
+                    const relY = (sim ? sim.targetY : pos.y) - sala.y - 28
 
                     return (
                       <div
@@ -466,63 +453,9 @@ export default function Escritorio2D() {
                           top: relY,
                           cursor: 'grab',
                           zIndex: 10,
-                          transition: isMoving ? 'left 1.8s ease, top 1.8s ease' : 'none',
                         }}
                         onMouseDown={(e) => startAgentDrag(agent.id, e)}
                       >
-                        {/* Balão de conversa */}
-                        {hasBubble && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              bottom: '100%',
-                              left: '50%',
-                              transform: 'translateX(-50%)',
-                              marginBottom: '6px',
-                              maxWidth: '150px',
-                              textAlign: 'center',
-                              zIndex: 20,
-                              pointerEvents: 'none',
-                            }}
-                          >
-                            <div
-                              className="px-2 py-1 text-white rounded-md shadow-lg whitespace-normal text-[10px] leading-tight"
-                              style={{
-                                background: '#1e2235',
-                                border: '1px solid #3a4060',
-                              }}
-                            >
-                              {sim!.chatMessage}
-                            </div>
-                            {/* Seta do balão */}
-                            <div style={{
-                              margin: '0 auto',
-                              width: 0, height: 0,
-                              borderLeft: '5px solid transparent',
-                              borderRight: '5px solid transparent',
-                              borderTop: '5px solid #3a4060',
-                            }} />
-                          </div>
-                        )}
-
-                        {/* Indicador de atividade (banheiro) */}
-                        {sim?.state === 'BATHROOM' && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              bottom: '100%',
-                              left: '50%',
-                              transform: 'translateX(-50%)',
-                              marginBottom: '4px',
-                              fontSize: '16px',
-                              zIndex: 20,
-                              pointerEvents: 'none',
-                            }}
-                          >
-                            🚻
-                          </div>
-                        )}
-
                         <Personagem2D
                           agent={agent}
                           onClick={() => setSelectedAgent(agent)}

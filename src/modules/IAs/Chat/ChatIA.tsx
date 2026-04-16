@@ -14,13 +14,6 @@ const STATUS_COLOR: Record<string, string> = {
   pausada: 'bg-orange-500',
 }
 
-const SUGESTOES = [
-  'Qual seu status atual?',
-  'Liste tarefas em andamento',
-  'Resumo das atividades de hoje',
-  'Preciso de uma pausa agora',
-]
-
 interface Props {
   agent: IaAgent
   onClose: () => void
@@ -60,11 +53,6 @@ export default function ChatIA({ agent, onClose }: Props) {
       e.preventDefault()
       handleSend()
     }
-  }
-
-  const handleSugestao = (s: string) => {
-    setTexto(s)
-    inputRef.current?.focus()
   }
 
   return (
@@ -124,7 +112,6 @@ export default function ChatIA({ agent, onClose }: Props) {
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <MessageSquare className="w-10 h-10 text-gray-700 mb-3" />
                   <p className="text-sm text-gray-500">Inicie uma conversa com {agent.nome}</p>
-                  <p className="text-xs text-gray-700 mt-1">Use as sugestões abaixo ou escreva sua mensagem</p>
                 </div>
               )}
 
@@ -200,21 +187,6 @@ export default function ChatIA({ agent, onClose }: Props) {
             </>
           )}
         </div>
-
-        {/* Sugestões */}
-        {mensagens.length === 0 && !loading && (
-          <div className="px-4 pb-2 flex gap-2 flex-wrap">
-            {SUGESTOES.map((s) => (
-              <button
-                key={s}
-                onClick={() => handleSugestao(s)}
-                className="text-xs px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-brand-600/50 text-gray-400 hover:text-white rounded-full transition-colors"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* Input */}
         <div className="px-4 pb-4 pt-2 border-t border-gray-800">
