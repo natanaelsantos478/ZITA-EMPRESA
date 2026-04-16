@@ -8,8 +8,7 @@ import type { IaAgent, IaTarefa } from '../types'
 import CanvasView from '../modules/IAs/Organograma/CanvasView'
 import EscritorioView from '../modules/IAs/Escritorio/EscritorioView'
 import Office3DView from '../modules/IAs/Organograma/Office3DView'
-import ControleIAPanel from '../modules/IAs/ControleIA/ControleIAPanel'
-import ChatIA from '../modules/IAs/Chat/ChatIA'
+import AgentPanel from '../modules/IAs/AgentPanel/AgentPanel'
 
 type ViewMode = 'canvas' | '2d' | '3d'
 
@@ -27,7 +26,6 @@ export default function Organograma() {
     () => (localStorage.getItem('zita_view_mode') as ViewMode) ?? '2d'
   )
   const [selectedAgent, setSelectedAgent] = useState<IaAgent | null>(null)
-  const [chatAgent, setChatAgent]         = useState<IaAgent | null>(null)
   const [tarefasCounts, setTarefasCounts] = useState<Record<string, number>>({})
 
   useEffect(() => {
@@ -59,7 +57,7 @@ export default function Organograma() {
   }, [])
 
   const handleSelect = useCallback((a: IaAgent) => setSelectedAgent(a), [])
-  const handleChat   = useCallback((a: IaAgent) => { setChatAgent(a); setSelectedAgent(null) }, [])
+  const handleChat   = useCallback((a: IaAgent) => setSelectedAgent(a), [])
 
   if (loading) {
     return (
@@ -118,15 +116,12 @@ export default function Organograma() {
 
         {/* Side panel — 2D/3D only (canvas manages its own) */}
         {view !== 'canvas' && selectedAgent && (
-          <ControleIAPanel
+          <AgentPanel
             agent={selectedAgent}
             onClose={() => setSelectedAgent(null)}
-            onChat={() => handleChat(selectedAgent)}
           />
         )}
       </div>
-
-      {chatAgent && <ChatIA agent={chatAgent} onClose={() => setChatAgent(null)} />}
     </div>
   )
 }
