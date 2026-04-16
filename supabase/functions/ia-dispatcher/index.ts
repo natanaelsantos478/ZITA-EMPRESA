@@ -103,8 +103,13 @@ serve(async (req: Request) => {
 
     // ── 6. Decidir rota ───────────────────────────────────────────────────────
     const isZeusTarget = agent.tipo === 'zeus'
-    const zeusUrl      = (zeus?.integracao_url ?? '') as string
-    const zeusApiKey   = ((zeus?.integracao_config as Record<string, unknown> | undefined)?.api_key ?? '') as string
+    const zeusRawUrl   = (zeus?.integracao_url ?? '') as string
+    const zeusCfg      = (zeus?.integracao_config as Record<string, unknown> | undefined) ?? {}
+    const zeusAuthKey  = ((zeusCfg.api_key ?? zeusCfg.client_token ?? '') as string)
+    const zeusChatflow = ((zeusCfg.chatflowid ?? zeusCfg.chatflow_id ?? '') as string)
+    const zeusUrl      = zeusRawUrl && zeusChatflow && !zeusRawUrl.includes('/prediction/')
+      ? zeusRawUrl.replace(/\/$/, '') + '/api/v1/prediction/' + zeusChatflow
+      : zeusRawUrl
     const routeViaZeus = !isZeusTarget && !!zeusUrl
 
     let respostaTexto = ''
@@ -112,7 +117,7 @@ serve(async (req: Request) => {
     // ── 6a. Via Zeus — todos os agentes não-Zeus passam por ele ──────────────
     if (routeViaZeus) {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (zeusApiKey) headers['Authorization'] = zeusApiKey.startsWith('Bearer ') ? zeusApiKey : `Bearer ${zeusApiKey}`
+      if (zeusAuthKey) headers['Authorization'] = zeusAuthKey.startsWith('Bearer ') ? zeusAuthKey : `Bearer ${zeusAuthKey}`
 
       const res = await fetch(zeusUrl, {
         method: 'POST',
@@ -120,7 +125,6 @@ serve(async (req: Request) => {
         body: JSON.stringify({
           question: mensagem,
           history,
-          // Zeus usa este contexto para decidir o fluxo: quem responde, quem só visualiza
           agentContext: {
             nome:            agent.nome,
             funcao:          (agent as unknown as Record<string, unknown>).funcao ?? '',
@@ -144,9 +148,16 @@ serve(async (req: Request) => {
       if (!url) {
         respostaTexto = `${agent.nome} não tem URL de integração configurada.`
       } else {
+        // Build proper Flowise prediction URL when only base URL is stored
+        const chatflowId = ((config.chatflowid ?? config.chatflow_id ?? '') as string)
+        const endpointUrl = tipo === 'flowise' && chatflowId && !url.includes('/prediction/')
+          ? url.replace(/\/$/, '') + '/api/v1/prediction/' + chatflowId
+          : url
+        // Flowise may use client_token instead of api_key
+        const authKey = (apiKey || (config.client_token ?? '') as string)
         const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-        if (apiKey) headers['Authorization'] = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`
-        const res = await fetch(url, {
+        if (authKey) headers['Authorization'] = authKey.startsWith('Bearer ') ? authKey : `Bearer ${authKey}`
+        const res = await fetch(endpointUrl, {
           method: 'POST', headers,
           body: JSON.stringify({ question: mensagem, history }),
         })
