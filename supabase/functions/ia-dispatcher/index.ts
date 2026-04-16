@@ -1,17 +1,24 @@
 /**
- * ia-dispatcher — Roteia mensagens do chat para o backend de IA do agente
+ * ia-dispatcher — Roteia mensagens do chat através do Zeus (hub central)
  *
- * Body: { conversa_id, agent_id, mensagem, company_id }
+ * Fluxo:
+ *  1. Valida JWT
+ *  2. Busca agente-alvo e Zeus da empresa
+ *  3. Se agente-alvo NÃO é Zeus E Zeus tem URL configurada:
+ *       → POST para Flowise/Zeus com { question, history, agentContext }
+ *       Zeus decide o fluxo, quem responde, quem só visualiza
+ *  4. Caso contrário (chat direto com Zeus, ou Zeus sem URL):
+ *       → Chama a LLM configurada no agente-alvo diretamente
+ *         (anthropic / gemini / openai / flowise / custom / webhook)
+ *  5. Insere resposta em ia_mensagens via service_role
  *
- * Integração por integracao_tipo:
- *  - flowise / custom / webhook → POST direto para integracao_url
- *  - anthropic / claude         → Claude API (api.anthropic.com)
- *  - openai / gpt               → OpenAI Chat API
- *  - gemini                     → Gemini API (generativelanguage.googleapis.com)
- *  - null / não configurado     → tenta anthropic se tiver api_key, gemini se tiver gemini_api_key
- *
- * API keys: integracao_config.api_key (anthropic/openai) ou integracao_config.gemini_api_key
- * System prompt: personalidade.prompt_sistema
+ * Configuração por agente:
+ *  Zeus:   integracao_tipo = flowise|custom|webhook, integracao_url, integracao_config.api_key
+ *  Outros: integracao_tipo = anthropic|gemini|openai
+ *          integracao_config.model          = modelo específico
+ *          integracao_config.api_key        = chave Anthropic/OpenAI
+ *          integracao_config.gemini_api_key = chave Gemini
+ *  System prompt: personalidade.prompt_sistema
  */
 
 import { serve }        from 'https://deno.land/std@0.168.0/http/server.ts'
@@ -49,13 +56,22 @@ serve(async (req: Request) => {
       return json({ error: 'conversa_id, agent_id, mensagem e company_id são obrigatórios.' }, 400)
     }
 
-    // ── 3. Buscar agente ──────────────────────────────────────────────────────
-    const { data: agent, error: agentErr } = await sb
-      .from('ia_agents')
-      .select('id, nome, integracao_tipo, integracao_url, integracao_config, personalidade')
-      .eq('id', agent_id)
-      .single()
-    if (agentErr || !agent) return json({ error: 'Agente não encontrado.' }, 404)
+    // ── 3. Buscar agente-alvo e Zeus em paralelo ──────────────────────────────
+    const [agentRes, zeusRes] = await Promise.all([
+      sb.from('ia_agents')
+        .select('id, nome, tipo, funcao, integracao_tipo, integracao_url, integracao_config, personalidade')
+        .eq('id', agent_id)
+        .single(),
+      sb.from('ia_agents')
+        .select('id, integracao_url, integracao_config')
+        .eq('company_id', company_id)
+        .eq('tipo', 'zeus')
+        .maybeSingle(),
+    ])
+
+    if (agentRes.error || !agentRes.data) return json({ error: 'Agente não encontrado.' }, 404)
+    const agent = agentRes.data
+    const zeus  = zeusRes.data
 
     // ── 4. Histórico das últimas mensagens ────────────────────────────────────
     const { data: historico } = await sb
@@ -73,23 +89,58 @@ serve(async (req: Request) => {
         content: m.conteudo,
       }))
 
-    // ── 5. Extrair configuração ───────────────────────────────────────────────
-    const config      = (agent.integracao_config ?? {}) as Record<string, unknown>
-    const personalidade = (agent.personalidade   ?? {}) as Record<string, unknown>
-    const apiKey      = (config.api_key          ?? '') as string
-    const geminiKey   = (config.gemini_api_key   ?? '') as string
-    const tipo        = (agent.integracao_tipo   ?? '') as string
-    const url         = (agent.integracao_url    ?? '') as string
-    const systemPrompt = (personalidade.prompt_sistema ?? '') as string
-    const temperatura  = (personalidade.temperatura    ?? 0.7) as number
-    const maxTokens    = (personalidade.max_tokens      ?? 1024) as number
+    // ── 5. Configuração do agente-alvo ────────────────────────────────────────
+    const config        = (agent.integracao_config ?? {}) as Record<string, unknown>
+    const personalidade = (agent.personalidade     ?? {}) as Record<string, unknown>
+    const apiKey        = (config.api_key           ?? '') as string
+    const geminiKey     = (config.gemini_api_key    ?? '') as string
+    const tipo          = (agent.integracao_tipo    ?? '') as string
+    const url           = (agent.integracao_url     ?? '') as string
+    const systemPrompt  = (personalidade.prompt_sistema ?? '') as string
+    const temperatura   = (personalidade.temperatura    ?? 0.7) as number
+    const maxTokens     = (personalidade.max_tokens      ?? 1024) as number
+    const model         = (config.model             ?? '') as string
+
+    // ── 6. Decidir rota ───────────────────────────────────────────────────────
+    const isZeusTarget = agent.tipo === 'zeus'
+    const zeusUrl      = (zeus?.integracao_url ?? '') as string
+    const zeusApiKey   = ((zeus?.integracao_config as Record<string, unknown> | undefined)?.api_key ?? '') as string
+    const routeViaZeus = !isZeusTarget && !!zeusUrl
 
     let respostaTexto = ''
 
-    // ── 6. Rotear por tipo ────────────────────────────────────────────────────
+    // ── 6a. Via Zeus — todos os agentes não-Zeus passam por ele ──────────────
+    if (routeViaZeus) {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (zeusApiKey) headers['Authorization'] = zeusApiKey.startsWith('Bearer ') ? zeusApiKey : `Bearer ${zeusApiKey}`
 
-    // ── 6a. Flowise / webhook / custom ────────────────────────────────────────
-    if (tipo === 'flowise' || tipo === 'custom' || tipo === 'webhook' || (tipo === '' && url)) {
+      const res = await fetch(zeusUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          question: mensagem,
+          history,
+          // Zeus usa este contexto para decidir o fluxo: quem responde, quem só visualiza
+          agentContext: {
+            nome:            agent.nome,
+            funcao:          (agent as unknown as Record<string, unknown>).funcao ?? '',
+            prompt_sistema:  systemPrompt,
+            integracao_tipo: tipo,
+          },
+        }),
+      })
+
+      if (!res.ok) {
+        const t = await res.text()
+        respostaTexto = `Erro ao contatar Zeus (${res.status}): ${t.slice(0, 200)}`
+      } else {
+        const r = await res.json() as Record<string, unknown>
+        respostaTexto = ((r.text ?? r.answer ?? r.output ?? r.response ?? '') as string) || JSON.stringify(r)
+      }
+    }
+
+    // ── 6b. Flowise / webhook / custom (Zeus direto ou sem Zeus configurado) ──
+    else if (tipo === 'flowise' || tipo === 'custom' || tipo === 'webhook' || (tipo === '' && url)) {
       if (!url) {
         respostaTexto = `${agent.nome} não tem URL de integração configurada.`
       } else {
@@ -109,16 +160,16 @@ serve(async (req: Request) => {
       }
     }
 
-    // ── 6b. Anthropic / Claude ────────────────────────────────────────────────
+    // ── 6c. Anthropic / Claude ────────────────────────────────────────────────
     else if (tipo === 'anthropic' || tipo === 'claude' || (tipo === '' && apiKey && !geminiKey)) {
       if (!apiKey) {
         respostaTexto = `Configure a API Key da Anthropic nas configurações de ${agent.nome}.`
       } else {
-        const model = (config.model ?? 'claude-haiku-4-5-20251001') as string
+        const mdl = model || 'claude-haiku-4-5-20251001'
         const messages: HistMsg[] = [...history, { role: 'user', content: mensagem }]
-        const body: Record<string, unknown> = { model, max_tokens: maxTokens, messages }
+        const body: Record<string, unknown> = { model: mdl, max_tokens: maxTokens, messages }
         if (systemPrompt) body.system = systemPrompt
-        if (temperatura !== undefined) body.temperature = temperatura
+        body.temperature = temperatura
 
         const res = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
@@ -139,13 +190,13 @@ serve(async (req: Request) => {
       }
     }
 
-    // ── 6c. Gemini ────────────────────────────────────────────────────────────
+    // ── 6d. Gemini ────────────────────────────────────────────────────────────
     else if (tipo === 'gemini' || (tipo === '' && geminiKey)) {
       const key = geminiKey || apiKey
       if (!key) {
         respostaTexto = `Configure a API Key do Gemini nas configurações de ${agent.nome}.`
       } else {
-        const model = (config.model ?? 'gemini-1.5-flash') as string
+        const mdl = model || 'gemini-1.5-flash'
         const contents = [
           ...history.map((m) => ({
             role: m.role === 'user' ? 'user' : 'model',
@@ -157,12 +208,10 @@ serve(async (req: Request) => {
           contents,
           generationConfig: { temperature: temperatura, maxOutputTokens: maxTokens },
         }
-        if (systemPrompt) {
-          bodyG.system_instruction = { parts: [{ text: systemPrompt }] }
-        }
+        if (systemPrompt) bodyG.system_instruction = { parts: [{ text: systemPrompt }] }
 
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${key}`,
           { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bodyG) }
         )
         if (!res.ok) {
@@ -175,12 +224,12 @@ serve(async (req: Request) => {
       }
     }
 
-    // ── 6d. OpenAI / GPT ──────────────────────────────────────────────────────
+    // ── 6e. OpenAI / GPT ──────────────────────────────────────────────────────
     else if (tipo === 'openai' || tipo === 'gpt') {
       if (!apiKey) {
         respostaTexto = `Configure a API Key da OpenAI nas configurações de ${agent.nome}.`
       } else {
-        const model = (config.model ?? 'gpt-4o-mini') as string
+        const mdl = model || 'gpt-4o-mini'
         const messages: { role: string; content: string }[] = []
         if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
         history.forEach((m) => messages.push({ role: m.role, content: m.content }))
@@ -189,7 +238,7 @@ serve(async (req: Request) => {
         const res = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-          body: JSON.stringify({ model, messages, temperature: temperatura, max_tokens: maxTokens }),
+          body: JSON.stringify({ model: mdl, messages, temperature: temperatura, max_tokens: maxTokens }),
         })
         if (!res.ok) {
           const t = await res.text()
@@ -201,9 +250,9 @@ serve(async (req: Request) => {
       }
     }
 
-    // ── 6e. Não configurado ───────────────────────────────────────────────────
+    // ── 6f. Não configurado ───────────────────────────────────────────────────
     else {
-      respostaTexto = `${agent.nome} ainda não tem integração configurada. Acesse Configurações → IAs → edite o agente e defina o Tipo de Integração e a API Key.`
+      respostaTexto = `${agent.nome} ainda não tem integração configurada. Acesse Configurações → IAs → edite o agente e defina o Provedor e a API Key.`
     }
 
     // ── 7. Inserir resposta ───────────────────────────────────────────────────
@@ -213,7 +262,7 @@ serve(async (req: Request) => {
       remetente_nome: agent.nome,
       conteudo:       respostaTexto || '…',
       conteudo_tipo:  'text',
-      metadados:      { tipo_integracao: tipo || 'auto' },
+      metadados:      { tipo_integracao: tipo || 'auto', via_zeus: routeViaZeus },
       tokens_prompt:  0,
       tokens_resposta: 0,
     })
