@@ -151,7 +151,7 @@ export function useChat(agentId: string) {
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData.session?.access_token
 
-      const resp = await supabase.functions.invoke('ia-dispatcher', {
+      await supabase.functions.invoke('ia-dispatcher', {
         body: {
           conversa_id: activeConversa.id,
           agent_id: agentId,
@@ -160,9 +160,10 @@ export function useChat(agentId: string) {
         },
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
-
-      if (resp.error) setTyping(false)
     } catch {
+      // ignore — realtime will set typing false when AI message arrives
+    } finally {
+      // Guarantee typing resets even if realtime channel is slow or dropped
       setTyping(false)
     }
   }, [conversa, agentId, createConversa])
