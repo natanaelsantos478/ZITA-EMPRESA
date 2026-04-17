@@ -22,7 +22,7 @@ export function useAgentStatus() {
       })
 
     const channel = supabase
-      .channel(`agents-status-${companyId}`)
+      .channel(`agents-status-${companyId}-${Date.now()}`)
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'ia_agents', filter: `company_id=eq.${companyId}` },
