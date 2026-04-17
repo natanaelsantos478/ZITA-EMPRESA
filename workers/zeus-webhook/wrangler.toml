@@ -15,7 +15,10 @@ compatibility_flags = ["nodejs_compat"]
 SUPABASE_URL       = "https://tgeomsnxfcqwrxijjvek.supabase.co"
 # SUPABASE_ANON_KEY  → wrangler secret put SUPABASE_ANON_KEY
 # FLOWISE_URL        → wrangler secret put FLOWISE_URL
+#                      valor: URL pública do Flowise local (ex: via ngrok/tunnel)
+#                      ex: http://localhost:3000  (local) ou https://xxxx.ngrok.io (exposto)
 # FLOWISE_CHATFLOW_ID → wrangler secret put FLOWISE_CHATFLOW_ID
+#                       valor: d9de6b9e-54f3-41a8-8c12-30fe2bfd5e27
 
 # ─── Observabilidade ──────────────────────────────────────────────────────────
 [observability]

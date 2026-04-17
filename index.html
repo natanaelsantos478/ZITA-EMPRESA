@@ -12,5 +12,14 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Zeus — Flowise local -->
+    <script type="module">
+      import Chatbot from "https://cdn.jsdelivr.net/npm/flowise-embed/dist/web.js"
+      Chatbot.init({
+        chatflowid: "d9de6b9e-54f3-41a8-8c12-30fe2bfd5e27",
+        apiHost: "http://localhost:3000",
+      })
+    </script>
   </body>
 </html>
