@@ -94,6 +94,17 @@ export function useChat(agentId: string) {
           const nova = payload.new as IaMensagem
           setMensagens((prev) => {
             if (prev.find((m) => m.id === nova.id)) return prev
+            // Replace the optimistic temp message with the confirmed DB row
+            if (nova.remetente_tipo === 'humano') {
+              const tempIdx = prev.findIndex(
+                (m) => m.id.startsWith('temp-') && m.conteudo === nova.conteudo && m.conversa_id === nova.conversa_id
+              )
+              if (tempIdx !== -1) {
+                const next = [...prev]
+                next[tempIdx] = nova
+                return next
+              }
+            }
             return [...prev, nova]
           })
           setTyping(false)
@@ -106,8 +117,8 @@ export function useChat(agentId: string) {
   }, [conversa?.id])
 
   const sendMessage = useCallback(async (conteudo: string) => {
-    const cid     = companyIdRef.current
-    const prof    = profileRef.current
+    const cid  = companyIdRef.current
+    const prof = profileRef.current
     if (!cid || !prof || !userRef.current) return
 
     let activeConversa = conversaRef.current ?? conversa
@@ -119,7 +130,31 @@ export function useChat(agentId: string) {
       activeConversa = newConv
     }
 
-    const { data: msgHumana, error: msgErr } = await supabase
+    // Show message immediately; replaced by real row when Realtime confirms INSERT
+    const tempId = `temp-${Date.now()}`
+    setMensagens((prev) => [
+      ...prev,
+      {
+        id: tempId,
+        conversa_id: activeConversa!.id,
+        company_id: cid,
+        remetente_tipo: 'humano',
+        remetente_id: prof.id,
+        remetente_nome: prof.nome,
+        conteudo,
+        conteudo_tipo: 'texto',
+        metadados: {},
+        tokens_prompt: 0,
+        tokens_resposta: 0,
+        created_at: new Date().toISOString(),
+      } as IaMensagem,
+    ])
+
+    // Refresh JWT so RLS WITH CHECK never fails on a stale token
+    const { data: sessionData } = await supabase.auth.getSession()
+    const token = sessionData.session?.access_token
+
+    const { error: msgErr } = await supabase
       .from('ia_mensagens')
       .insert({
         conversa_id: activeConversa.id,
@@ -133,24 +168,16 @@ export function useChat(agentId: string) {
         tokens_prompt: 0,
         tokens_resposta: 0,
       })
-      .select()
-      .single()
 
-    if (msgErr) console.error('[useChat] INSERT mensagem:', msgErr.message)
-
-    if (msgHumana) {
-      setMensagens((prev) => {
-        if (prev.find((m) => m.id === (msgHumana as IaMensagem).id)) return prev
-        return [...prev, msgHumana as IaMensagem]
-      })
+    if (msgErr) {
+      console.error('[useChat] INSERT mensagem:', msgErr.message, msgErr.code)
+      setMensagens((prev) => prev.filter((m) => m.id !== tempId))
+      return
     }
 
     setTyping(true)
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession()
-      const token = sessionData.session?.access_token
-
       await supabase.functions.invoke('ia-dispatcher', {
         body: {
           conversa_id: activeConversa.id,
@@ -163,7 +190,6 @@ export function useChat(agentId: string) {
     } catch {
       // ignore — realtime will set typing false when AI message arrives
     } finally {
-      // Guarantee typing resets even if realtime channel is slow or dropped
       setTyping(false)
     }
   }, [conversa, agentId, createConversa])
