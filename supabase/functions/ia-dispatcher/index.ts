@@ -10,6 +10,7 @@
  *  4. Caso contrário (chat direto com Zeus, ou Zeus sem URL):
  *       → Chama a LLM configurada no agente-alvo diretamente
  *         (anthropic / gemini / openai / flowise / custom / webhook)
+ *       → Se nenhuma key de agente configurada, tenta Gemini da empresa (company-level key)
  *  5. Insere resposta em ia_mensagens via service_role
  *
  * Configuração por agente:
@@ -17,8 +18,13 @@
  *  Outros: integracao_tipo = anthropic|gemini|openai
  *          integracao_config.model          = modelo específico
  *          integracao_config.api_key        = chave Anthropic/OpenAI
- *          integracao_config.gemini_api_key = chave Gemini
+ *          integracao_config.gemini_api_key = chave Gemini individual do agente
  *  System prompt: personalidade.prompt_sistema
+ *
+ * Fallback Gemini: quando o agente não tem key configurada, o dispatcher busca
+ * a Gemini API Key criptografada da empresa (companies.gemini_api_key_enc),
+ * descriptografa em memória via AES-256-GCM e usa diretamente.
+ * A key NUNCA é logada nem retornada ao frontend.
  */
 
 import { serve }        from 'https://deno.land/std@0.168.0/http/server.ts'
@@ -31,6 +37,44 @@ const CORS = {
 }
 
 type HistMsg = { role: 'user' | 'assistant'; content: string }
+
+// ── AES-256-GCM decrypt (mesma lógica do company-settings) ───────────────────
+
+async function decryptKey(encrypted: string, keyStr: string): Promise<string> {
+  const raw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(keyStr))
+  const key = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt'])
+  const buf = Uint8Array.from(atob(encrypted), (c) => c.charCodeAt(0))
+  const pt  = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12))
+  return new TextDecoder().decode(pt)
+}
+
+// ── Busca a Gemini Key da empresa (fallback quando agente não tem key própria) ─
+
+async function getCompanyGeminiKey(
+  sb: ReturnType<typeof createClient>,
+  company_id: string,
+): Promise<{ key: string; modelo: string } | null> {
+  const encKeyStr = Deno.env.get('ENCRYPTION_KEY')
+  if (!encKeyStr) return null
+
+  const { data } = await sb
+    .from('companies')
+    .select('gemini_api_key_enc, gemini_modelo')
+    .eq('id', company_id)
+    .single()
+
+  const enc    = (data as Record<string, unknown> | null)?.gemini_api_key_enc as string | undefined
+  const modelo = ((data as Record<string, unknown> | null)?.gemini_modelo as string) || 'gemini-2.0-flash'
+
+  if (!enc) return null
+
+  try {
+    const key = await decryptKey(enc, encKeyStr)
+    return { key, modelo }
+  } catch {
+    return null
+  }
+}
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
@@ -120,7 +164,6 @@ serve(async (req: Request) => {
         body: JSON.stringify({
           question: mensagem,
           history,
-          // Zeus usa este contexto para decidir o fluxo: quem responde, quem só visualiza
           agentContext: {
             nome:            agent.nome,
             funcao:          (agent as unknown as Record<string, unknown>).funcao ?? '',
@@ -192,11 +235,21 @@ serve(async (req: Request) => {
 
     // ── 6d. Gemini ────────────────────────────────────────────────────────────
     else if (tipo === 'gemini' || (tipo === '' && geminiKey)) {
-      const key = geminiKey || apiKey
+      // Prioridade: key do agente → key da empresa
+      let key   = geminiKey || apiKey
+      let mdl   = model || 'gemini-1.5-flash'
+
       if (!key) {
-        respostaTexto = `Configure a API Key do Gemini nas configurações de ${agent.nome}.`
+        const companyKey = await getCompanyGeminiKey(sb, company_id)
+        if (companyKey) {
+          key = companyKey.key
+          mdl = model || companyKey.modelo
+        }
+      }
+
+      if (!key) {
+        respostaTexto = `Configure a API Key do Gemini nas configurações de ${agent.nome} ou na aba IA & Modelos da empresa.`
       } else {
-        const mdl = model || 'gemini-1.5-flash'
         const contents = [
           ...history.map((m) => ({
             role: m.role === 'user' ? 'user' : 'model',
@@ -250,9 +303,40 @@ serve(async (req: Request) => {
       }
     }
 
-    // ── 6f. Não configurado ───────────────────────────────────────────────────
+    // ── 6f. Sem integração — tenta Gemini da empresa como padrão ─────────────
     else {
-      respostaTexto = `${agent.nome} ainda não tem integração configurada. Acesse Configurações → IAs → edite o agente e defina o Provedor e a API Key.`
+      const companyKey = await getCompanyGeminiKey(sb, company_id)
+
+      if (companyKey) {
+        const mdl  = model || companyKey.modelo
+        const sp   = systemPrompt || `Você é ${agent.nome}, assistente de IA. Responda em português brasileiro.`
+        const contents = [
+          ...history.map((m) => ({
+            role: m.role === 'user' ? 'user' : 'model',
+            parts: [{ text: m.content }],
+          })),
+          { role: 'user', parts: [{ text: mensagem }] },
+        ]
+        const bodyG: Record<string, unknown> = {
+          contents,
+          generationConfig: { temperature: temperatura, maxOutputTokens: maxTokens },
+          system_instruction: { parts: [{ text: sp }] },
+        }
+
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${companyKey.key}`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bodyG) }
+        )
+        if (!res.ok) {
+          const t = await res.text()
+          respostaTexto = `Erro na API Gemini (${res.status}): ${t.slice(0, 200)}`
+        } else {
+          const r = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
+          respostaTexto = r.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+        }
+      } else {
+        respostaTexto = `${agent.nome} ainda não tem integração configurada. Acesse Configurações → IA & Modelos e adicione a Gemini API Key da empresa, ou edite o agente e defina o Provedor e a API Key.`
+      }
     }
 
     // ── 7. Inserir resposta ───────────────────────────────────────────────────

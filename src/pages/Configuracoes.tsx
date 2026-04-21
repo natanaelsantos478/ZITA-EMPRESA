@@ -2,19 +2,20 @@ import { useState, useEffect, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   Bot, Users, Building2, Shield, Plus, Pencil, Trash2,
-  Loader2, Check, AlertTriangle
+  Loader2, Check, AlertTriangle, Cpu
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import type { IaAgent, Profile, UserRole } from '../types'
 import IAModal from '../modules/IAs/Config/IAModal'
+import GeminiConfig from '../modules/Configuracoes/GeminiConfig'
 
 const STATUS_COLOR: Record<string, string> = {
   online: 'bg-green-500', ocupada: 'bg-yellow-500', aguardando: 'bg-blue-500',
   offline: 'bg-gray-500', erro: 'bg-red-500', pausada: 'bg-orange-500',
 }
 
-type Tab = 'ias' | 'usuarios' | 'empresa' | 'permissoes'
+type Tab = 'ias' | 'usuarios' | 'empresa' | 'permissoes' | 'ia_modelos'
 
 const CAPACIDADES_COLS = ['enviar_mensagem', 'criar_tarefa', 'delegar_tarefa', 'acessar_historico', 'executar_webhook']
 
@@ -94,10 +95,11 @@ export default function Configuracoes() {
   }
 
   const TABS: { key: Tab; label: string; icon: typeof Bot }[] = [
-    { key: 'ias', label: 'Minhas IAs', icon: Bot },
-    { key: 'permissoes', label: 'Permissões', icon: Shield },
-    { key: 'usuarios', label: 'Usuários', icon: Users },
-    { key: 'empresa', label: 'Empresa', icon: Building2 },
+    { key: 'ias',        label: 'Minhas IAs',  icon: Bot       },
+    { key: 'permissoes', label: 'Permissões',  icon: Shield    },
+    { key: 'usuarios',   label: 'Usuários',    icon: Users     },
+    { key: 'empresa',    label: 'Empresa',     icon: Building2 },
+    { key: 'ia_modelos', label: 'IA & Modelos', icon: Cpu      },
   ]
 
   return (
@@ -332,6 +334,9 @@ export default function Configuracoes() {
                 </div>
               </div>
             )}
+
+            {/* IA & MODELOS */}
+            {tab === 'ia_modelos' && <GeminiConfig />}
           </>
         )}
       </div>
